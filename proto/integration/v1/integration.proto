@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package opspilot.integration.v1;
+
+option go_package = "github.com/opspilot/opspilot/gen/go/integration/v1;integrationv1";
+
+// ── GitHub App config ─────────────────────────────────────────
+
+message GetGitHubConfigRequest {
+    string user_id = 1;
+}
+
+message GetGitHubConfigResponse {
+    string install_url  = 1;
+    string callback_url = 2;
+    string webhook_url  = 3;
+    bool configured     = 4;
+}
+
+// ── GitHub installation/repository shapes ─────────────────────
+
+message GitHubInstallation {
+    string id                    = 1;
+    int64 installation_id        = 2;
+    string account_login         = 3;
+    string account_type          = 4;
+    string repository_selection  = 5;
+    string status                = 6;
+    string installed_at          = 7;
+}
+
+message GitHubRepository {
+    int64 repository_id    = 1;
+    string owner           = 2;
+    string name            = 3;
+    string full_name       = 4;
+    string html_url        = 5;
+    string clone_url       = 6;
+    string default_branch  = 7;
+    bool private           = 8;
+}
+
+message RepositoryConnection {
+    string id                      = 1;
+    string workspace_id            = 2;
+    string project_id              = 3;
+    string full_name               = 4;
+    string html_url                = 5;
+    string selected_branch         = 6;
+    string status                  = 7;
+    string last_indexed_commit_sha = 8;
+    string last_indexed_at         = 9;
+}
+
+message IngestionJob {
+    string id                = 1;
+    string workspace_id      = 2;
+    string project_id        = 3;
+    string status            = 4;
+    string source_branch     = 5;
+    string source_commit_sha = 6;
+    string started_at        = 7;
+    string finished_at       = 8;
+}
+
+// ── Service ───────────────────────────────────────────────────
+
+service IntegrationService {
+    rpc GetGitHubConfig(GetGitHubConfigRequest) returns (GetGitHubConfigResponse);
+}

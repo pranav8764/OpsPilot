@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package opspilot.project.v1;
+
+option go_package = "github.com/opspilot/opspilot/gen/go/project/v1;projectv1";
+
+// ── Messages ──────────────────────────────────────────────────
+
+message Project {
+    string id               = 1;
+    string workspace_id     = 2;
+    string name             = 3;
+    string description      = 4;
+    string repo_url         = 5;
+    string repo_provider    = 6;
+    string default_branch   = 7;
+    string status           = 8;
+    string indexing_status  = 9;
+    string created_by       = 10;
+    string created_at       = 11;
+    string updated_at       = 12;
+}
+
+message CreateProjectRequest {
+    string workspace_id = 1;
+    string name         = 2;
+    string description  = 3;
+    string user_id      = 4;  // creator
+}
+
+message CreateProjectResponse {
+    Project project = 1;
+}
+
+message GetProjectsRequest {
+    string workspace_id = 1;
+    string user_id      = 2;  // for authorization
+}
+
+message GetProjectsResponse {
+    repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+    string project_id   = 1;
+    string workspace_id = 2;
+    string user_id      = 3;
+}
+
+message GetProjectResponse {
+    Project project = 1;
+}
+
+message DeleteProjectRequest {
+    string project_id   = 1;
+    string workspace_id = 2;
+    string user_id      = 3;
+}
+
+message DeleteProjectResponse {
+    bool success = 1;
+}
+
+// ── Service ───────────────────────────────────────────────────
+
+service ProjectService {
+    rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+    rpc GetProjects(GetProjectsRequest)     returns (GetProjectsResponse);
+    rpc GetProject(GetProjectRequest)       returns (GetProjectResponse);
+    rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+}

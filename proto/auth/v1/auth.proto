@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package opspilot.auth.v1;
+
+option go_package = "github.com/opspilot/opspilot/gen/go/auth/v1;authv1";
+
+// ── Messages ──────────────────────────────────────────────────
+
+message ValidateTokenRequest {
+    string token = 1;
+}
+
+message ValidateTokenResponse {
+    bool   valid      = 1;
+    string user_id    = 2;  // our internal UUID
+    string clerk_user_id = 3;
+    string email      = 4;
+    string name       = 5;
+}
+
+message SyncUserRequest {
+    string clerk_user_id = 1;
+    string email         = 2;
+    string name          = 3;
+    string avatar_url    = 4;
+}
+
+message SyncUserResponse {
+    string user_id = 1;  // our internal UUID
+    bool   created = 2;  // true if new user, false if existing
+}
+
+message GetUserRequest {
+    string user_id = 1;  // internal UUID
+}
+
+message User {
+    string user_id       = 1;
+    string clerk_user_id = 2;
+    string email         = 3;
+    string name          = 4;
+    string avatar_url    = 5;
+    string created_at    = 6;
+}
+
+message GetUserResponse {
+    User user = 1;
+}
+
+// ── Service ───────────────────────────────────────────────────
+
+service AuthService {
+    // ValidateToken validates a Clerk JWT and returns user info
+    rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+    // SyncUser upserts a user into our DB from Clerk data
+    rpc SyncUser(SyncUserRequest) returns (SyncUserResponse);
+
+    // GetUser retrieves a user by internal UUID
+    rpc GetUser(GetUserRequest) returns (GetUserResponse);
+}

@@ -1,0 +1,10 @@
+go 1.22
+
+use (
+	./gen/go
+	./services/api-gateway
+	./services/auth-service
+	./services/workspace-service
+	./services/project-service
+	./services/integration-service
+)

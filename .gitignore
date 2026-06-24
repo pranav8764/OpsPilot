@@ -1,0 +1,47 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Secrets and private keys
+secrets/
+*.pem
+*.key
+
+# Go
+bin/
+dist/
+*.exe
+*.test
+vendor/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+
+# Docker
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Proto generated (committed, but exclude if regenerating locally)
+# gen/ is intentionally committed

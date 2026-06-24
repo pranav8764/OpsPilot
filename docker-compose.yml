@@ -1,0 +1,206 @@
+version: '3.9'
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: opspilot-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opspilot}
+      POSTGRES_USER: ${POSTGRES_USER:-opspilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opspilot_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opspilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: opspilot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: opspilot-nats
+    restart: unless-stopped
+    ports:
+      - "4222:4222"
+      - "8222:8222"   # NATS monitoring UI
+    command: ["--http_port", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Go Microservices ──────────────────────────────────────────
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: opspilot-auth
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+      - "8081:8081"   # HTTP health check
+    environment:
+      AUTH_SERVICE_PORT: "9001"
+      AUTH_SERVICE_HEALTH_PORT: "8081"
+      DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  workspace-service:
+    build:
+      context: .
+      dockerfile: services/workspace-service/Dockerfile
+    container_name: opspilot-workspace
+    restart: unless-stopped
+    ports:
+      - "9002:9002"
+      - "8082:8082"   # HTTP health check
+    environment:
+      WORKSPACE_SERVICE_PORT: "9002"
+      WORKSPACE_SERVICE_HEALTH_PORT: "8082"
+      DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  project-service:
+    build:
+      context: .
+      dockerfile: services/project-service/Dockerfile
+    container_name: opspilot-project
+    restart: unless-stopped
+    ports:
+      - "9003:9003"
+      - "8083:8083"   # HTTP health check
+    environment:
+      PROJECT_SERVICE_PORT: "9003"
+      PROJECT_SERVICE_HEALTH_PORT: "8083"
+      DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  integration-service:
+    build:
+      context: .
+      dockerfile: services/integration-service/Dockerfile
+    container_name: opspilot-integration
+    restart: unless-stopped
+    ports:
+      - "9004:9004"
+      - "8084:8084"   # HTTP health check
+    environment:
+      INTEGRATION_SERVICE_PORT: "9004"
+      INTEGRATION_SERVICE_HEALTH_PORT: "8084"
+      DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+      GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH:-}
+      GITHUB_APP_PRIVATE_KEY_BASE64: ${GITHUB_APP_PRIVATE_KEY_BASE64:-}
+      GITHUB_APP_WEBHOOK_SECRET: ${GITHUB_APP_WEBHOOK_SECRET:-}
+      GITHUB_APP_INSTALL_URL: ${GITHUB_APP_INSTALL_URL:-}
+      GITHUB_APP_CALLBACK_URL: ${GITHUB_APP_CALLBACK_URL:-}
+      GITHUB_WEBHOOK_URL: ${GITHUB_WEBHOOK_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: opspilot-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      GATEWAY_PORT: "8080"
+      GATEWAY_ENV: ${GATEWAY_ENV:-development}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      AUTH_SERVICE_ADDR: auth-service:9001
+      WORKSPACE_SERVICE_ADDR: workspace-service:9002
+      PROJECT_SERVICE_ADDR: project-service:9003
+      INTEGRATION_SERVICE_ADDR: integration-service:9004
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      workspace-service:
+        condition: service_healthy
+      project-service:
+        condition: service_healthy
+      integration-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── AI Worker (Phase 3 skeleton) ───────────────────────────────
+
+  ai-worker:
+    build:
+      context: ./ai-worker
+      dockerfile: Dockerfile
+    container_name: opspilot-ai-worker
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      AI_WORKER_PORT: "8090"
+      DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    name: opspilot_postgres_data

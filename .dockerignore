@@ -1,0 +1,23 @@
+# Ignore everything by default for root-context Go service builds.
+**
+
+# Go service sources used by Dockerfiles.
+!services/
+!services/api-gateway/
+!services/api-gateway/**
+!services/auth-service/
+!services/auth-service/**
+!services/workspace-service/
+!services/workspace-service/**
+!services/project-service/
+!services/project-service/**
+!services/integration-service/
+!services/integration-service/**
+services/*/bin/
+
+# Generated protobuf Go module required by service go.mod replace directives.
+!gen/
+!gen/go/
+!gen/go/**
+
+# AI worker keeps its own ./ai-worker context and is not affected by this file.
