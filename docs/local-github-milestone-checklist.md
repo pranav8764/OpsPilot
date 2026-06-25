@@ -32,7 +32,7 @@ Generate the encryption key:
 openssl rand -base64 32
 ```
 
-## [ ] 2. GitHub App
+## [x] 2. GitHub App
 
 Create the GitHub App using [github-app-setup.md](./github-app-setup.md).
 
@@ -55,7 +55,7 @@ make health
 
 Current known local caveat: if Docker Desktop is not running, `make migrate` cannot connect to the Docker daemon or fallback Postgres.
 
-## [ ] 4. Backend Contract
+## [x] 4. Backend Contract
 
 Implement the routes defined in [github-integration-api-contract.md](./github-integration-api-contract.md).
 
@@ -67,7 +67,7 @@ The implementation must:
 - create `ingestion_jobs` when a repo is attached;
 - avoid cloning/indexing inside the HTTP request path.
 
-## [ ] 5. Frontend Contract
+## [x] 5. Frontend Contract
 
 Replace the current project creation card's "Connect Repository" placeholder with:
 
@@ -82,7 +82,7 @@ Replace the current project creation card's "Connect Repository" placeholder wit
    - latest ingestion job status,
    - last indexed commit when available.
 
-## [ ] 6. Verification
+## [x] 6. Verification
 
 Minimum checks for this milestone slice:
 
@@ -101,6 +101,37 @@ After endpoints exist:
 - confirm `repository_connections` row exists;
 - confirm `ingestion_jobs` row is queued;
 - confirm project UI shows connected repo state.
+
+Verified locally:
+
+```text
+repository_connections.status = connected
+repository_connections.full_name = pranav8764/ParkIntel
+repository_connections.selected_branch = main
+
+ingestion_jobs.status = queued
+ingestion_jobs.source_branch = main
+```
+
+The GitHub connection slice is complete through queued ingestion job creation.
+
+## [ ] 7. Repository Ingestion Worker
+
+Next milestone:
+
+```text
+queued ingestion job -> fetch repository contents -> index chunks -> source-cited Q&A
+```
+
+The worker should:
+
+1. Poll or subscribe for `ingestion_jobs` with `status = 'queued'`.
+2. Load the linked `repository_connections` and `github_installations` records.
+3. Generate a short-lived GitHub installation token.
+4. Fetch repository files for the selected branch.
+5. Store indexed file/chunk metadata.
+6. Mark the job `succeeded` or `failed`.
+7. Update project indexing status for the UI.
 
 ## Service Boundary
 

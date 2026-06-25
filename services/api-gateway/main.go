@@ -101,6 +101,8 @@ func main() {
 
 	// Integration routes
 	mux.Handle("/api/v1/integrations/github/config", authMiddleware(http.HandlerFunc(integrationHandler.GitHubConfig)))
+	mux.Handle("/api/v1/integrations/github/callback", authMiddleware(http.HandlerFunc(integrationHandler.GitHubCallback)))
+	mux.Handle("/api/v1/webhooks/github", http.HandlerFunc(integrationHandler.GitHubWebhook))
 
 	// Workspace routes
 	mux.Handle("/api/v1/workspaces", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +117,28 @@ func main() {
 	})))
 
 	mux.Handle("/api/v1/workspaces/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// GitHub installation list
+		if isGitHubInstallationsPath(r.URL.Path) {
+			integrationHandler.ListInstallations(w, r)
+			return
+		}
+		// GitHub repository list
+		if isGitHubRepositoriesPath(r.URL.Path) {
+			integrationHandler.ListRepositories(w, r)
+			return
+		}
+		// Project repository connection
+		if isProjectRepositoryPath(r.URL.Path) {
+			switch r.Method {
+			case http.MethodGet:
+				integrationHandler.GetRepository(w, r)
+			case http.MethodPost:
+				integrationHandler.AttachRepository(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
 		// /api/v1/workspaces/{id}/projects
 		if isProjectsPath(r.URL.Path) {
 			switch r.Method {
@@ -134,6 +158,7 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})))
+
 
 	// ── CORS ──────────────────────────────────────────────────────
 	corsHandler := cors.New(cors.Options{
@@ -201,6 +226,25 @@ func isProjectsPath(path string) bool {
 	parts := splitPath(path)
 	return len(parts) > 0 && (parts[len(parts)-1] == "projects" || (len(parts) > 1 && parts[len(parts)-2] == "projects"))
 }
+
+func isGitHubInstallationsPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/integrations/github/installations
+	parts := splitPath(path)
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "integrations" && parts[5] == "github" && parts[6] == "installations"
+}
+
+func isGitHubRepositoriesPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/integrations/github/installations/{installationId}/repositories
+	parts := splitPath(path)
+	return len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "integrations" && parts[5] == "github" && parts[6] == "installations" && parts[8] == "repositories"
+}
+
+func isProjectRepositoryPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/repository
+	parts := splitPath(path)
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "repository"
+}
+
 
 func splitPath(path string) []string {
 	var parts []string

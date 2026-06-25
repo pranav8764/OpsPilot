@@ -2191,7 +2191,7 @@ Source-Cited Response
 * [x] User signup/login
 * [x] Workspace creation
 * [x] Project creation
-* [ ] GitHub repo connection
+* [x] GitHub repo connection
 * [ ] Repo indexing
 * [ ] RAG-based project Q&A
 * [ ] Source citations
@@ -2215,7 +2215,7 @@ Source-Cited Response
 * [ ] Redis queue
 * [ ] Object storage
 * [x] Auth middleware
-* [ ] GitHub OAuth
+* [x] GitHub OAuth
 * [ ] Secret scanner
 * [ ] Embedding pipeline
 * [ ] Agent workflow runner

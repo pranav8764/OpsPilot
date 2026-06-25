@@ -21,6 +21,11 @@ Use these development URLs for local setup:
 | Webhook URL | `http://localhost:8080/api/v1/webhooks/github` |
 | Setup URL | `http://localhost:3000/dashboard` |
 
+GitHub will reject `localhost` webhook URLs while webhooks are active because GitHub cannot reach a local machine. For local setup, either:
+
+- uncheck the webhook **Active** option until live webhook testing is needed; or
+- use a public HTTPS tunnel URL for the webhook.
+
 For local webhook delivery, GitHub will need a public tunnel URL later. When using a tunnel, replace the webhook URL with:
 
 ```text
@@ -46,10 +51,10 @@ Enable these events first:
 
 | Event | Why |
 | --- | --- |
-| Installation | Track new, suspended, unsuspended, and deleted app installations. |
-| Installation repositories | Track repositories added to or removed from an installation. |
 | Push | Later re-index when the selected branch changes. |
 | Pull request | Later update workflow/PR context. |
+
+GitHub sends `installation` and `installation_repositories` events to GitHub Apps by default; they may not appear as manually selectable events in the GitHub App form.
 
 ## Values Needed In `.env`
 
@@ -79,10 +84,16 @@ Use either `GITHUB_APP_PRIVATE_KEY_PATH` or `GITHUB_APP_PRIVATE_KEY_BASE64`.
 For local development, the path-based option is easier:
 
 ```text
-GITHUB_APP_PRIVATE_KEY_PATH=./secrets/github-app.private-key.pem
+GITHUB_APP_PRIVATE_KEY_PATH=./secrets/YOUR_APP.private-key.pem
+GITHUB_APP_PRIVATE_KEY_BASE64=
 ```
 
-Create the `secrets/` directory locally and keep it uncommitted.
+Create the `secrets/` directory locally and keep it uncommitted. Docker Compose mounts `./secrets` into the Integration Service container at `/app/secrets`, so the relative path above resolves correctly inside the container.
+
+The generated credential encryption key and the GitHub private key are different:
+
+- `CREDENTIAL_ENCRYPTION_KEY` is the 44-character base64 output from `openssl rand -base64 32`.
+- `GITHUB_APP_PRIVATE_KEY_PATH` points to the `.pem` file downloaded from GitHub.
 
 ## First Backend Milestone
 
@@ -94,3 +105,13 @@ The dedicated Integration Service should implement:
 4. List repositories accessible to an installation.
 5. Attach a selected repository to an OpsPilot project.
 6. Create an initial `ingestion_jobs` row for that project.
+
+## Local Verification Snapshot
+
+A successful local connection should produce:
+
+- one `repository_connections` row with `status = 'connected'`;
+- one `ingestion_jobs` row with `status = 'queued'`;
+- the workspace UI showing the connected repository, branch, and queued ingestion status.
+
+The queued job is expected for now. The next milestone is the ingestion worker that consumes queued jobs and indexes repository files.

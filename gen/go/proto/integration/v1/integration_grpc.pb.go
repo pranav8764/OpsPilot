@@ -19,7 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	IntegrationService_GetGitHubConfig_FullMethodName = "/opspilot.integration.v1.IntegrationService/GetGitHubConfig"
+	IntegrationService_GetGitHubConfig_FullMethodName         = "/opspilot.integration.v1.IntegrationService/GetGitHubConfig"
+	IntegrationService_HandleGitHubCallback_FullMethodName    = "/opspilot.integration.v1.IntegrationService/HandleGitHubCallback"
+	IntegrationService_ListInstallations_FullMethodName       = "/opspilot.integration.v1.IntegrationService/ListInstallations"
+	IntegrationService_ListRepositories_FullMethodName        = "/opspilot.integration.v1.IntegrationService/ListRepositories"
+	IntegrationService_AttachRepository_FullMethodName        = "/opspilot.integration.v1.IntegrationService/AttachRepository"
+	IntegrationService_GetRepositoryConnection_FullMethodName = "/opspilot.integration.v1.IntegrationService/GetRepositoryConnection"
+	IntegrationService_HandleGitHubWebhook_FullMethodName     = "/opspilot.integration.v1.IntegrationService/HandleGitHubWebhook"
 )
 
 // IntegrationServiceClient is the client API for IntegrationService service.
@@ -27,6 +33,12 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IntegrationServiceClient interface {
 	GetGitHubConfig(ctx context.Context, in *GetGitHubConfigRequest, opts ...grpc.CallOption) (*GetGitHubConfigResponse, error)
+	HandleGitHubCallback(ctx context.Context, in *HandleGitHubCallbackRequest, opts ...grpc.CallOption) (*HandleGitHubCallbackResponse, error)
+	ListInstallations(ctx context.Context, in *ListInstallationsRequest, opts ...grpc.CallOption) (*ListInstallationsResponse, error)
+	ListRepositories(ctx context.Context, in *ListRepositoriesRequest, opts ...grpc.CallOption) (*ListRepositoriesResponse, error)
+	AttachRepository(ctx context.Context, in *AttachRepositoryRequest, opts ...grpc.CallOption) (*AttachRepositoryResponse, error)
+	GetRepositoryConnection(ctx context.Context, in *GetRepositoryConnectionRequest, opts ...grpc.CallOption) (*GetRepositoryConnectionResponse, error)
+	HandleGitHubWebhook(ctx context.Context, in *HandleGitHubWebhookRequest, opts ...grpc.CallOption) (*HandleGitHubWebhookResponse, error)
 }
 
 type integrationServiceClient struct {
@@ -47,11 +59,77 @@ func (c *integrationServiceClient) GetGitHubConfig(ctx context.Context, in *GetG
 	return out, nil
 }
 
+func (c *integrationServiceClient) HandleGitHubCallback(ctx context.Context, in *HandleGitHubCallbackRequest, opts ...grpc.CallOption) (*HandleGitHubCallbackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HandleGitHubCallbackResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_HandleGitHubCallback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) ListInstallations(ctx context.Context, in *ListInstallationsRequest, opts ...grpc.CallOption) (*ListInstallationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListInstallationsResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_ListInstallations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) ListRepositories(ctx context.Context, in *ListRepositoriesRequest, opts ...grpc.CallOption) (*ListRepositoriesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRepositoriesResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_ListRepositories_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) AttachRepository(ctx context.Context, in *AttachRepositoryRequest, opts ...grpc.CallOption) (*AttachRepositoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AttachRepositoryResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_AttachRepository_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) GetRepositoryConnection(ctx context.Context, in *GetRepositoryConnectionRequest, opts ...grpc.CallOption) (*GetRepositoryConnectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRepositoryConnectionResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_GetRepositoryConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) HandleGitHubWebhook(ctx context.Context, in *HandleGitHubWebhookRequest, opts ...grpc.CallOption) (*HandleGitHubWebhookResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HandleGitHubWebhookResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_HandleGitHubWebhook_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IntegrationServiceServer is the server API for IntegrationService service.
 // All implementations should embed UnimplementedIntegrationServiceServer
 // for forward compatibility
 type IntegrationServiceServer interface {
 	GetGitHubConfig(context.Context, *GetGitHubConfigRequest) (*GetGitHubConfigResponse, error)
+	HandleGitHubCallback(context.Context, *HandleGitHubCallbackRequest) (*HandleGitHubCallbackResponse, error)
+	ListInstallations(context.Context, *ListInstallationsRequest) (*ListInstallationsResponse, error)
+	ListRepositories(context.Context, *ListRepositoriesRequest) (*ListRepositoriesResponse, error)
+	AttachRepository(context.Context, *AttachRepositoryRequest) (*AttachRepositoryResponse, error)
+	GetRepositoryConnection(context.Context, *GetRepositoryConnectionRequest) (*GetRepositoryConnectionResponse, error)
+	HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error)
 }
 
 // UnimplementedIntegrationServiceServer should be embedded to have forward compatible implementations.
@@ -60,6 +138,24 @@ type UnimplementedIntegrationServiceServer struct {
 
 func (UnimplementedIntegrationServiceServer) GetGitHubConfig(context.Context, *GetGitHubConfigRequest) (*GetGitHubConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGitHubConfig not implemented")
+}
+func (UnimplementedIntegrationServiceServer) HandleGitHubCallback(context.Context, *HandleGitHubCallbackRequest) (*HandleGitHubCallbackResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HandleGitHubCallback not implemented")
+}
+func (UnimplementedIntegrationServiceServer) ListInstallations(context.Context, *ListInstallationsRequest) (*ListInstallationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListInstallations not implemented")
+}
+func (UnimplementedIntegrationServiceServer) ListRepositories(context.Context, *ListRepositoriesRequest) (*ListRepositoriesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRepositories not implemented")
+}
+func (UnimplementedIntegrationServiceServer) AttachRepository(context.Context, *AttachRepositoryRequest) (*AttachRepositoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AttachRepository not implemented")
+}
+func (UnimplementedIntegrationServiceServer) GetRepositoryConnection(context.Context, *GetRepositoryConnectionRequest) (*GetRepositoryConnectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRepositoryConnection not implemented")
+}
+func (UnimplementedIntegrationServiceServer) HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HandleGitHubWebhook not implemented")
 }
 
 // UnsafeIntegrationServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -91,6 +187,114 @@ func _IntegrationService_GetGitHubConfig_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IntegrationService_HandleGitHubCallback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HandleGitHubCallbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).HandleGitHubCallback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_HandleGitHubCallback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).HandleGitHubCallback(ctx, req.(*HandleGitHubCallbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_ListInstallations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListInstallationsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).ListInstallations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_ListInstallations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).ListInstallations(ctx, req.(*ListInstallationsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_ListRepositories_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRepositoriesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).ListRepositories(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_ListRepositories_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).ListRepositories(ctx, req.(*ListRepositoriesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_AttachRepository_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AttachRepositoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).AttachRepository(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_AttachRepository_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).AttachRepository(ctx, req.(*AttachRepositoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_GetRepositoryConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRepositoryConnectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).GetRepositoryConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_GetRepositoryConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).GetRepositoryConnection(ctx, req.(*GetRepositoryConnectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_HandleGitHubWebhook_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HandleGitHubWebhookRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).HandleGitHubWebhook(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_HandleGitHubWebhook_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).HandleGitHubWebhook(ctx, req.(*HandleGitHubWebhookRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IntegrationService_ServiceDesc is the grpc.ServiceDesc for IntegrationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -101,6 +305,30 @@ var IntegrationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetGitHubConfig",
 			Handler:    _IntegrationService_GetGitHubConfig_Handler,
+		},
+		{
+			MethodName: "HandleGitHubCallback",
+			Handler:    _IntegrationService_HandleGitHubCallback_Handler,
+		},
+		{
+			MethodName: "ListInstallations",
+			Handler:    _IntegrationService_ListInstallations_Handler,
+		},
+		{
+			MethodName: "ListRepositories",
+			Handler:    _IntegrationService_ListRepositories_Handler,
+		},
+		{
+			MethodName: "AttachRepository",
+			Handler:    _IntegrationService_AttachRepository_Handler,
+		},
+		{
+			MethodName: "GetRepositoryConnection",
+			Handler:    _IntegrationService_GetRepositoryConnection_Handler,
+		},
+		{
+			MethodName: "HandleGitHubWebhook",
+			Handler:    _IntegrationService_HandleGitHubWebhook_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

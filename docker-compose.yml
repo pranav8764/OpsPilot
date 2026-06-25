@@ -139,6 +139,8 @@ services:
       GITHUB_APP_INSTALL_URL: ${GITHUB_APP_INSTALL_URL:-}
       GITHUB_APP_CALLBACK_URL: ${GITHUB_APP_CALLBACK_URL:-}
       GITHUB_WEBHOOK_URL: ${GITHUB_WEBHOOK_URL:-}
+    volumes:
+      - ./secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy

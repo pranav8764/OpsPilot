@@ -67,4 +67,82 @@ message IngestionJob {
 
 service IntegrationService {
     rpc GetGitHubConfig(GetGitHubConfigRequest) returns (GetGitHubConfigResponse);
+    rpc HandleGitHubCallback(HandleGitHubCallbackRequest) returns (HandleGitHubCallbackResponse);
+    rpc ListInstallations(ListInstallationsRequest) returns (ListInstallationsResponse);
+    rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
+    rpc AttachRepository(AttachRepositoryRequest) returns (AttachRepositoryResponse);
+    rpc GetRepositoryConnection(GetRepositoryConnectionRequest) returns (GetRepositoryConnectionResponse);
+    rpc HandleGitHubWebhook(HandleGitHubWebhookRequest) returns (HandleGitHubWebhookResponse);
 }
+
+message HandleGitHubCallbackRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    int64 installation_id = 3;
+}
+
+message HandleGitHubCallbackResponse {
+    GitHubInstallation installation = 1;
+}
+
+message ListInstallationsRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+}
+
+message ListInstallationsResponse {
+    repeated GitHubInstallation installations = 1;
+}
+
+message ListRepositoriesRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string github_installation_id = 3;
+}
+
+message ListRepositoriesResponse {
+    repeated GitHubRepository repositories = 1;
+}
+
+message AttachRepositoryRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string project_id = 3;
+    string github_installation_id = 4;
+    int64 repository_id = 5;
+    string owner = 6;
+    string name = 7;
+    string full_name = 8;
+    string html_url = 9;
+    string clone_url = 10;
+    string default_branch = 11;
+    string selected_branch = 12;
+    bool private = 13;
+}
+
+message AttachRepositoryResponse {
+    RepositoryConnection repository_connection = 1;
+    IngestionJob ingestion_job = 2;
+}
+
+message GetRepositoryConnectionRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string project_id = 3;
+}
+
+message GetRepositoryConnectionResponse {
+    RepositoryConnection repository_connection = 1;
+    IngestionJob latest_ingestion_job = 2;
+}
+
+message HandleGitHubWebhookRequest {
+    string event_type = 1;
+    string signature = 2;
+    bytes payload = 3;
+}
+
+message HandleGitHubWebhookResponse {
+    bool success = 1;
+}
+

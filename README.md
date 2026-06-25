@@ -21,13 +21,13 @@ AI Worker: Python FastAPI (Phase 3)
 
 The practical implementation plan is tracked in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md).
 
-Next build target:
+Current build target:
 
 ```
 GitHub-connected project -> repository ingestion -> source-cited project Q&A
 ```
 
-This means the next major work is GitHub App connection, repository selection, indexing, embeddings, retrieval, and a cited project Q&A UI.
+The GitHub App connection slice is working locally: OpsPilot can install a GitHub App, store the installation, list accessible repositories, attach a repository to a project, and create a queued ingestion job. The next major work is processing queued ingestion jobs by fetching repository files, indexing/chunking them, then adding embeddings, retrieval, and a cited project Q&A UI.
 
 GitHub milestone docs:
 
@@ -57,6 +57,8 @@ cp .env.example .env
 make up
 ```
 
+For local GitHub App private-key loading, keep the `.pem` file under `secrets/`. Docker Compose mounts this directory into the Integration Service as read-only.
+
 ### 3. Run Migrations
 ```bash
 make migrate
@@ -75,8 +77,17 @@ Open [http://localhost:3000](http://localhost:3000)
 
 See `.env.example` for all required variables. You need:
 - **Clerk** keys → [clerk.com](https://clerk.com) (free)
+- **GitHub App** values → [GitHub App setup](./docs/github-app-setup.md)
 - **Groq** API key → [groq.com](https://groq.com) (free, Phase 3)
 - **Gemini** API key → [aistudio.google.com](https://aistudio.google.com) (free, Phase 3)
+
+For local GitHub setup:
+
+```bash
+openssl rand -base64 32
+```
+
+Use the output for `CREDENTIAL_ENCRYPTION_KEY`. Put the GitHub-downloaded `.pem` private key in `secrets/` and set `GITHUB_APP_PRIVATE_KEY_PATH` to that path. Leave `GITHUB_APP_PRIVATE_KEY_BASE64` empty unless you intentionally use the base64-encoded PEM option.
 
 ## Make Commands
 
@@ -92,7 +103,8 @@ make clean       # Remove containers and volumes
 ## Phase Build Status
 
 - [x] **Phase 1** — Foundation (Auth, Workspace, Project, Dashboard)
-- [ ] **Phase 2** — GitHub Integration
+- [x] **Phase 2a** — GitHub App connection, repository selection, and queued ingestion job
+- [ ] **Phase 2b** — Repository ingestion worker
 - [ ] **Phase 3** — RAG Pipeline (Groq + Gemini Embeddings)
 - [ ] **Phase 4** — AI Chat
 - [ ] **Phase 5** — DevOps Workflows
