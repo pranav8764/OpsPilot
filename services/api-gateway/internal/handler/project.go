@@ -68,6 +68,40 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 }
 
+// Delete permanently removes a project and its cascading indexed/log/incident
+// data. The Project Service enforces owner/admin authorization.
+func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractWorkspaceID(r.URL.Path)
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	projectID := ""
+	for index, part := range parts {
+		if part == "projects" && index+1 < len(parts) {
+			projectID = parts[index+1]
+		}
+	}
+	if workspaceID == "" || projectID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "workspace and project ids are required")
+		return
+	}
+	resp, err := h.projectClient.DeleteProject(r.Context(), &projectv1.DeleteProjectRequest{
+		WorkspaceId: workspaceID, ProjectId: projectID, UserId: userID,
+	})
+	if err != nil || !resp.Success {
+		writeError(w, http.StatusForbidden, "DELETE_FAILED", "project could not be deleted")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Create creates a new project.
 // POST /api/v1/workspaces/{workspaceId}/projects
 func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {

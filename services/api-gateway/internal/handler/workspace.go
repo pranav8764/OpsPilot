@@ -123,6 +123,34 @@ func (h *WorkspaceHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"workspace": resp.Workspace})
 }
 
+// UpdateSettings changes owner/admin-controlled workspace lifecycle settings.
+// PUT /api/v1/workspaces/{id}/settings
+func (h *WorkspaceHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractPathParam(r.URL.Path, "/api/v1/workspaces/")
+	var body struct {
+		LogRetentionDays int32 `json:"log_retention_days"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil || body.LogRetentionDays < 1 || body.LogRetentionDays > 365 {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "log_retention_days must be between 1 and 365")
+		return
+	}
+	response, err := h.workspaceClient.UpdateWorkspaceSettings(r.Context(), &workspacev1.UpdateWorkspaceSettingsRequest{
+		WorkspaceId: workspaceID, UserId: userID, LogRetentionDays: body.LogRetentionDays,
+	})
+	if err != nil {
+		writeError(w, http.StatusForbidden, "UPDATE_FAILED", "workspace settings could not be updated")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspace": response.Workspace})
+}
+
 func extractPathParam(path, prefix string) string {
 	trimmed := strings.TrimPrefix(path, prefix)
 	// Remove trailing slash or sub-path

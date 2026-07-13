@@ -1,4 +1,6 @@
-.PHONY: up down migrate health logs clean build proto
+.PHONY: up down migrate health logs clean build proto test
+
+PYTHON ?= $(if $(wildcard $(CURDIR)/ai-worker/.venv/bin/python),$(CURDIR)/ai-worker/.venv/bin/python,python3)
 
 # ── Docker Compose ──────────────────────────────────────────────────────────
 
@@ -31,6 +33,7 @@ migrate:
 
 health:
 	@echo "🔍 Checking service health..."
+	@curl -sf http://localhost:3000 >/dev/null && echo "✅ Frontend" || echo "❌ Frontend"
 	@curl -sf http://localhost:8080/health && echo "✅ API Gateway" || echo "❌ API Gateway"
 	@curl -sf http://localhost:8081/health && echo "✅ Auth Service" || echo "❌ Auth Service"
 	@curl -sf http://localhost:8082/health && echo "✅ Workspace Service" || echo "❌ Workspace Service"
@@ -83,3 +86,5 @@ test:
 	cd services/workspace-service && go test ./...
 	cd services/project-service && go test ./...
 	cd services/integration-service && go test ./...
+	cd ai-worker && $(PYTHON) -m pytest -q
+	PYTHONPATH=sandbox-runner $(PYTHON) -m pytest -q sandbox-runner/tests

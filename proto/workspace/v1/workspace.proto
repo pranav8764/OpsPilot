@@ -7,55 +7,67 @@ option go_package = "github.com/opspilot/opspilot/gen/go/workspace/v1;workspacev
 // ── Messages ──────────────────────────────────────────────────
 
 message Workspace {
-    string id         = 1;
-    string name       = 2;
-    string slug       = 3;
-    string owner_id   = 4;
-    string plan       = 5;
-    string role       = 6;  // the requesting user's role
-    string created_at = 7;
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string owner_id = 4;
+  string plan = 5;
+  string role = 6; // the requesting user's role
+  string created_at = 7;
+  int32 log_retention_days = 8;
 }
 
 message CreateWorkspaceRequest {
-    string name     = 1;
-    string owner_id = 2;  // internal user UUID
+  string name = 1;
+  string owner_id = 2; // internal user UUID
 }
 
 message CreateWorkspaceResponse {
-    Workspace workspace = 1;
+  Workspace workspace = 1;
 }
 
 message GetWorkspacesRequest {
-    string user_id = 1;  // internal user UUID
+  string user_id = 1; // internal user UUID
 }
 
 message GetWorkspacesResponse {
-    repeated Workspace workspaces = 1;
+  repeated Workspace workspaces = 1;
 }
 
 message GetWorkspaceRequest {
-    string workspace_id = 1;
-    string user_id      = 2;  // for authorization
+  string workspace_id = 1;
+  string user_id = 2; // for authorization
 }
 
 message GetWorkspaceResponse {
-    Workspace workspace = 1;
+  Workspace workspace = 1;
 }
 
 message DeleteWorkspaceRequest {
-    string workspace_id = 1;
-    string user_id      = 2;  // must be owner
+  string workspace_id = 1;
+  string user_id = 2; // must be owner
 }
 
 message DeleteWorkspaceResponse {
-    bool success = 1;
+  bool success = 1;
+}
+
+message UpdateWorkspaceSettingsRequest {
+  string workspace_id = 1;
+  string user_id = 2;
+  int32 log_retention_days = 3;
+}
+
+message UpdateWorkspaceSettingsResponse {
+  Workspace workspace = 1;
 }
 
 // ── Service ───────────────────────────────────────────────────
 
 service WorkspaceService {
-    rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse);
-    rpc GetWorkspaces(GetWorkspacesRequest)     returns (GetWorkspacesResponse);
-    rpc GetWorkspace(GetWorkspaceRequest)       returns (GetWorkspaceResponse);
-    rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (DeleteWorkspaceResponse);
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (CreateWorkspaceResponse);
+  rpc GetWorkspaces(GetWorkspacesRequest) returns (GetWorkspacesResponse);
+  rpc GetWorkspace(GetWorkspaceRequest) returns (GetWorkspaceResponse);
+  rpc DeleteWorkspace(DeleteWorkspaceRequest) returns (DeleteWorkspaceResponse);
+  rpc UpdateWorkspaceSettings(UpdateWorkspaceSettingsRequest) returns (UpdateWorkspaceSettingsResponse);
 }

@@ -76,10 +76,12 @@ func main() {
 	userHandler := handler.NewUserHandler(authClient, logger)
 	workspaceHandler := handler.NewWorkspaceHandler(authClient, workspaceClient, logger)
 	projectHandler := handler.NewProjectHandler(authClient, projectClient, logger)
-	integrationHandler := handler.NewIntegrationHandler(authClient, integrationClient, logger)
+	integrationHandler := handler.NewIntegrationHandler(authClient, integrationClient, cfg.FrontendURL, logger)
+	aiHandler := handler.NewAIHandler(authClient, projectClient, workspaceClient, integrationClient, cfg.AIWorkerURL, cfg.AIWorkerInternalToken, logger)
 
 	// ── Router ───────────────────────────────────────────────────
 	mux := http.NewServeMux()
+	httpMetrics := middleware.NewHTTPMetrics()
 
 	// Health check (public)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +93,7 @@ func main() {
 			"version": "1.0.0",
 		})
 	})
+	mux.HandleFunc("/metrics", httpMetrics.Handler)
 
 	// Auth middleware for protected routes
 	authMiddleware := middleware.RequireAuth(cfg.ClerkSecretKey, logger)
@@ -101,7 +104,7 @@ func main() {
 
 	// Integration routes
 	mux.Handle("/api/v1/integrations/github/config", authMiddleware(http.HandlerFunc(integrationHandler.GitHubConfig)))
-	mux.Handle("/api/v1/integrations/github/callback", authMiddleware(http.HandlerFunc(integrationHandler.GitHubCallback)))
+	mux.Handle("/api/v1/integrations/github/callback", http.HandlerFunc(integrationHandler.GitHubCallback))
 	mux.Handle("/api/v1/webhooks/github", http.HandlerFunc(integrationHandler.GitHubWebhook))
 
 	// Workspace routes
@@ -117,6 +120,77 @@ func main() {
 	})))
 
 	mux.Handle("/api/v1/workspaces/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isWorkspaceSettingsPath(r.URL.Path) {
+			if r.Method == http.MethodPut {
+				workspaceHandler.UpdateSettings(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		if isProjectPath(r.URL.Path) {
+			if r.Method == http.MethodDelete {
+				projectHandler.Delete(w, r)
+			} else {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		if isWorkspaceUsagePath(r.URL.Path) {
+			aiHandler.UsageSummary(w, r)
+			return
+		}
+		if isLogProviderConnectionsPath(r.URL.Path) {
+			switch r.Method {
+			case http.MethodGet:
+				integrationHandler.ListLogProviders(w, r)
+			case http.MethodPost:
+				integrationHandler.UpsertLogProvider(w, r)
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		if isGitHubInstallSessionPath(r.URL.Path) {
+			integrationHandler.CreateGitHubInstallSession(w, r)
+			return
+		}
+		// Explicit approval/rejection for a pinned draft FIX PR action.
+		if isFixApprovalDecisionPath(r.URL.Path) {
+			integrationHandler.DecideFixApproval(w, r)
+			return
+		}
+		// Pinned code diff proposal. Publishing remains separately approval-gated.
+		if isIncidentFixProposalPath(r.URL.Path) {
+			aiHandler.ProposeFix(w, r)
+			return
+		}
+		// Evidence-backed manual/provider log analysis.
+		if isProjectLogAnalysisPath(r.URL.Path) {
+			aiHandler.AnalyzeLogs(w, r)
+			return
+		}
+		if isProjectLogCollectionPath(r.URL.Path) {
+			aiHandler.CollectAndAnalyzeLogs(w, r)
+			return
+		}
+		if isProjectIncidentsPath(r.URL.Path) {
+			aiHandler.ListIncidents(w, r)
+			return
+		}
+		// Tenant-scoped project Q&A.
+		if isProjectQueryPath(r.URL.Path) {
+			aiHandler.Query(w, r)
+			return
+		}
+		if isProjectDeploymentReadinessPath(r.URL.Path) {
+			aiHandler.DeploymentAnalysis(w, r, "readiness")
+			return
+		}
+		if isProjectDeploymentGeneratePath(r.URL.Path) {
+			aiHandler.DeploymentAnalysis(w, r, "generate")
+			return
+		}
 		// GitHub installation list
 		if isGitHubInstallationsPath(r.URL.Path) {
 			integrationHandler.ListInstallations(w, r)
@@ -159,10 +233,9 @@ func main() {
 		}
 	})))
 
-
 	// ── CORS ──────────────────────────────────────────────────────
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "https://*.vercel.app"},
+		AllowedOrigins:   cfg.AllowedOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Request-ID"},
 		AllowCredentials: true,
@@ -170,9 +243,11 @@ func main() {
 
 	// ── Apply global middleware ──────────────────────────────────
 	handler := middleware.RequestID(
-		middleware.Logging(logger)(
-			corsHandler.Handler(mux),
-		),
+		httpMetrics.Middleware(middleware.Logging(logger)(
+			middleware.SecurityHeaders(cfg.Env == "production")(
+				middleware.RateLimit(cfg.RateLimitRequests, time.Minute, logger)(corsHandler.Handler(mux)),
+			),
+		)),
 	)
 
 	// ── HTTP Server ──────────────────────────────────────────────
@@ -180,7 +255,7 @@ func main() {
 		Addr:         fmt.Sprintf(":%s", cfg.GatewayPort),
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 90 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -222,15 +297,41 @@ func dialGRPC(addr string) (*grpc.ClientConn, error) {
 }
 
 func isProjectsPath(path string) bool {
-	// Check if path ends in /projects or /projects/
 	parts := splitPath(path)
-	return len(parts) > 0 && (parts[len(parts)-1] == "projects" || (len(parts) > 1 && parts[len(parts)-2] == "projects"))
+	return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects"
+}
+
+func isProjectPath(path string) bool {
+	parts := splitPath(path)
+	return len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects"
+}
+
+func isWorkspaceUsagePath(path string) bool {
+	parts := splitPath(path)
+	return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "usage"
+}
+
+func isWorkspaceSettingsPath(path string) bool {
+	parts := splitPath(path)
+	return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "settings"
 }
 
 func isGitHubInstallationsPath(path string) bool {
 	// matches /api/v1/workspaces/{workspaceId}/integrations/github/installations
 	parts := splitPath(path)
 	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "integrations" && parts[5] == "github" && parts[6] == "installations"
+}
+
+func isGitHubInstallSessionPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/integrations/github/install-session
+	parts := splitPath(path)
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "integrations" && parts[5] == "github" && parts[6] == "install-session"
+}
+
+func isLogProviderConnectionsPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/integrations/log-providers
+	parts := splitPath(path)
+	return len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "integrations" && parts[5] == "log-providers"
 }
 
 func isGitHubRepositoriesPath(path string) bool {
@@ -245,6 +346,51 @@ func isProjectRepositoryPath(path string) bool {
 	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "repository"
 }
 
+func isProjectQueryPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/query
+	parts := splitPath(path)
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "query"
+}
+
+func isProjectDeploymentReadinessPath(path string) bool {
+	parts := splitPath(path)
+	return len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "deployment" && parts[7] == "readiness"
+}
+
+func isProjectDeploymentGeneratePath(path string) bool {
+	parts := splitPath(path)
+	return len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "deployment" && parts[7] == "generate"
+}
+
+func isProjectLogAnalysisPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/analyze
+	parts := splitPath(path)
+	return len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "incidents" && parts[7] == "analyze"
+}
+
+func isProjectLogCollectionPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/collect
+	parts := splitPath(path)
+	return len(parts) == 8 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "incidents" && parts[7] == "collect"
+}
+
+func isProjectIncidentsPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents
+	parts := splitPath(path)
+	return len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "incidents"
+}
+
+func isIncidentFixProposalPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/{incidentId}/fix-proposal
+	parts := splitPath(path)
+	return len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "incidents" && parts[8] == "fix-proposal"
+}
+
+func isFixApprovalDecisionPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/projects/{projectId}/approvals/{approvalId}/decision
+	parts := splitPath(path)
+	return len(parts) == 9 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "projects" && parts[6] == "approvals" && parts[8] == "decision"
+}
 
 func splitPath(path string) []string {
 	var parts []string

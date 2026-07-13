@@ -1,2 +1,9 @@
 version: v1
 name: buf.build/opspilot/opspilot
+lint:
+  use:
+    - STANDARD
+  except:
+    # Repository layout keeps all API sources under proto/, while generated Go
+    # paths are controlled explicitly by go_package.
+    - PACKAGE_DIRECTORY_MATCH

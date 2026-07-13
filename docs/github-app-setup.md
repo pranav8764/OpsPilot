@@ -1,64 +1,42 @@
-# GitHub App Setup
+# GitHub App setup
 
-This guide prepares the external GitHub App values required by OpsPilot's next implementation milestone:
+OpsPilot uses a GitHub App, not a user PAT. Install it only on repositories that OpsPilot may read and for which an approved FIX draft PR may be opened.
 
-```text
-GitHub-connected project -> repository ingestion -> source-cited project Q&A
-```
+## URLs
 
-Do not commit generated private keys, webhook secrets, or filled `.env` files.
-
-## Required GitHub App Settings
-
-Create a GitHub App named `OpsPilot` or an environment-specific variant such as `OpsPilot Local`.
-
-Use these development URLs for local setup:
+For local development:
 
 | Setting | Value |
 | --- | --- |
-| Homepage URL | `http://localhost:3000` |
-| Callback URL | `http://localhost:8080/api/v1/integrations/github/callback` |
-| Webhook URL | `http://localhost:8080/api/v1/webhooks/github` |
-| Setup URL | `http://localhost:3000/dashboard` |
+| Homepage | `http://localhost:3000` |
+| Callback | `http://localhost:8080/api/v1/integrations/github/callback` |
+| Webhook | Public HTTPS tunnel + `/api/v1/webhooks/github` |
+| Setup | `http://localhost:3000/dashboard` |
 
-GitHub will reject `localhost` webhook URLs while webhooks are active because GitHub cannot reach a local machine. For local setup, either:
+GitHub cannot deliver webhooks to localhost. Disable webhook delivery temporarily or use a public HTTPS tunnel. Production callback/webhook URLs must be HTTPS and exactly match `.env`.
 
-- uncheck the webhook **Active** option until live webhook testing is needed; or
-- use a public HTTPS tunnel URL for the webhook.
+## Minimum repository permissions
 
-For local webhook delivery, GitHub will need a public tunnel URL later. When using a tunnel, replace the webhook URL with:
-
-```text
-https://YOUR_TUNNEL_DOMAIN/api/v1/webhooks/github
-```
-
-## Repository Permissions
-
-Start with the minimum permissions needed for repository selection, ingestion, and future PR-based fixes.
-
-| Permission | Access | Why OpsPilot needs it |
+| Permission | Access | Reason |
 | --- | --- | --- |
-| Metadata | Read-only | Required for repository identity and installation metadata. |
-| Contents | Read-only for first milestone | Read repository files for indexing. Increase to read/write only when PR-based config fixes are implemented. |
-| Pull requests | Read-only for first milestone | Prepare for PR visibility. Increase to read/write only when OpsPilot creates draft PRs. |
-| Issues | Read-only or none for first milestone | Not needed until GitHub issue creation is implemented. |
-| Checks | Read-only or none for first milestone | Not needed until CI/check annotations are implemented. |
-| Actions | Read-only or none for first milestone | Not needed until workflow/debug integration is implemented. |
+| Metadata | Read | Repository/install identity (implicit/required) |
+| Contents | Read and write | Read pinned source; create blobs/tree/commit/new fix branch |
+| Pull requests | Read and write | Open a draft PR and expose its URL/state |
 
-## Webhook Events
+Do **not** grant Administration, Actions, Workflows, Deployments, Environments, Secrets, or Issues for this release. OpsPilot blocks `.github/workflows` changes and does not merge or update the base branch.
 
-Enable these events first:
+GitHub recommends choosing only the minimum GitHub App permissions: <https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app>.
 
-| Event | Why |
-| --- | --- |
-| Push | Later re-index when the selected branch changes. |
-| Pull request | Later update workflow/PR context. |
+Subscribe to:
 
-GitHub sends `installation` and `installation_repositories` events to GitHub Apps by default; they may not appear as manually selectable events in the GitHub App form.
+- `installation`
+- `installation_repositories`
+- `push`
+- `pull_request`
 
-## Values Needed In `.env`
+Only verified installation state and repository metadata affect the control plane. Commit messages, PR text, and repository files are treated as untrusted data.
 
-After creating the GitHub App, fill these values in `.env` using `.env.example` as the template:
+## Environment
 
 ```bash
 CREDENTIAL_ENCRYPTION_KEY=
@@ -67,51 +45,40 @@ GITHUB_APP_SLUG=
 GITHUB_APP_PRIVATE_KEY_PATH=
 GITHUB_APP_PRIVATE_KEY_BASE64=
 GITHUB_APP_WEBHOOK_SECRET=
-GITHUB_APP_INSTALL_URL=
+GITHUB_APP_INSTALL_URL=https://github.com/apps/YOUR_APP/installations/new
 GITHUB_APP_CALLBACK_URL=http://localhost:8080/api/v1/integrations/github/callback
-GITHUB_WEBHOOK_URL=http://localhost:8080/api/v1/webhooks/github
-NEXT_PUBLIC_GITHUB_APP_INSTALL_URL=
+GITHUB_WEBHOOK_URL=https://YOUR_TUNNEL/api/v1/webhooks/github
+GITHUB_API_VERSION=2026-03-10
+FRONTEND_URL=http://localhost:3000
 ```
 
-Generate the credential encryption key locally:
+Generate unrelated keys for credential encryption and webhook validation. Use either private-key path or base64, not both. For non-root containers, base64 from a secret manager is easiest:
 
 ```bash
 openssl rand -base64 32
+base64 < secrets/github-app.private-key.pem | tr -d '\n'
 ```
 
-Use either `GITHUB_APP_PRIVATE_KEY_PATH` or `GITHUB_APP_PRIVATE_KEY_BASE64`.
+The first command is `CREDENTIAL_ENCRYPTION_KEY`; the second is `GITHUB_APP_PRIVATE_KEY_BASE64`.
 
-For local development, the path-based option is easier:
+## Secure installation flow
 
-```text
-GITHUB_APP_PRIVATE_KEY_PATH=./secrets/YOUR_APP.private-key.pem
-GITHUB_APP_PRIVATE_KEY_BASE64=
-```
+1. An authenticated owner/admin asks OpsPilot for an install session.
+2. OpsPilot creates 32 random bytes, stores only SHA-256, binds the row to user/workspace, and sets a ten-minute expiry.
+3. Browser redirects to the GitHub installation URL with opaque `state`.
+4. Public callback consumes the state exactly once, derives user/workspace from the server row, validates the installation through GitHub, and stores metadata.
+5. Callback redirects only to the configured frontend origin/workspace path.
 
-Create the `secrets/` directory locally and keep it uncommitted. Docker Compose mounts `./secrets` into the Integration Service container at `/app/secrets`, so the relative path above resolves correctly inside the container.
+Never construct workspace/user state in browser JavaScript and never log `state`, webhook signatures, private keys, installation tokens, or provider credentials.
 
-The generated credential encryption key and the GitHub private key are different:
+## Verification
 
-- `CREDENTIAL_ENCRYPTION_KEY` is the 44-character base64 output from `openssl rand -base64 32`.
-- `GITHUB_APP_PRIVATE_KEY_PATH` points to the `.pem` file downloaded from GitHub.
-
-## First Backend Milestone
-
-The dedicated Integration Service should implement:
-
-1. GitHub App install callback.
-2. Webhook receiver with signature verification.
-3. Installation token exchange.
-4. List repositories accessible to an installation.
-5. Attach a selected repository to an OpsPilot project.
-6. Create an initial `ingestion_jobs` row for that project.
-
-## Local Verification Snapshot
-
-A successful local connection should produce:
-
-- one `repository_connections` row with `status = 'connected'`;
-- one `ingestion_jobs` row with `status = 'queued'`;
-- the workspace UI showing the connected repository, branch, and queued ingestion status.
-
-The queued job is expected for now. The next milestone is the ingestion worker that consumes queued jobs and indexes repository files.
+- Install on a disposable repository and confirm only selected repositories are listed.
+- Replay the callback: it must fail.
+- Use expired/tampered state: it must fail.
+- Send a webhook with invalid/missing `X-Hub-Signature-256`: it must fail without logging the signature.
+- Attach a repository and confirm a durable ingestion job succeeds at a pinned SHA.
+- Generate a verified proposal, reject it, and confirm no ref/PR appears.
+- Approve a fresh proposal and confirm one new `opspilot/fix-*` ref and one **draft** PR appear.
+- Confirm the base branch SHA is unchanged.
+- Change the base/file after proposal and confirm stale publication fails.

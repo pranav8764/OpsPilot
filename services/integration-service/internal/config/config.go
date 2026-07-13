@@ -9,12 +9,14 @@ type Config struct {
 	GRPCPort                string
 	HealthPort              string
 	DatabaseURL             string
+	NATSURL                 string
 	CredentialEncryptionKey string
 	GitHubAppID             string
 	GitHubAppSlug           string
 	GitHubAppPrivateKeyPath string
 	GitHubAppPrivateKeyB64  string
 	GitHubAppWebhookSecret  string
+	GitHubAPIVersion        string
 	GitHubAppInstallURL     string
 	GitHubAppCallbackURL    string
 	GitHubWebhookURL        string
@@ -25,12 +27,14 @@ func Load() (*Config, error) {
 		GRPCPort:                getEnv("INTEGRATION_SERVICE_PORT", "9004"),
 		HealthPort:              getEnv("INTEGRATION_SERVICE_HEALTH_PORT", "8084"),
 		DatabaseURL:             getEnv("DATABASE_URL", ""),
+		NATSURL:                 getEnv("NATS_URL", "nats://localhost:4222"),
 		CredentialEncryptionKey: getEnv("CREDENTIAL_ENCRYPTION_KEY", ""),
 		GitHubAppID:             getEnv("GITHUB_APP_ID", ""),
 		GitHubAppSlug:           getEnv("GITHUB_APP_SLUG", ""),
 		GitHubAppPrivateKeyPath: getEnv("GITHUB_APP_PRIVATE_KEY_PATH", ""),
 		GitHubAppPrivateKeyB64:  getEnv("GITHUB_APP_PRIVATE_KEY_BASE64", ""),
 		GitHubAppWebhookSecret:  getEnv("GITHUB_APP_WEBHOOK_SECRET", ""),
+		GitHubAPIVersion:        getEnv("GITHUB_API_VERSION", "2026-03-10"),
 		GitHubAppInstallURL:     getEnv("GITHUB_APP_INSTALL_URL", ""),
 		GitHubAppCallbackURL:    getEnv("GITHUB_APP_CALLBACK_URL", ""),
 		GitHubWebhookURL:        getEnv("GITHUB_WEBHOOK_URL", ""),

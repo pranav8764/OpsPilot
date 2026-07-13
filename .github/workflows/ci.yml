@@ -1,0 +1,139 @@
+name: OpsPilot CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opspilot-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_ci_placeholder
+          CLERK_SECRET_KEY: sk_test_ci_placeholder
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+      - run: npm audit --audit-level=high
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: opspilot
+          POSTGRES_USER: opspilot
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U opspilot -d opspilot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache-dependency-path: |
+            services/*/go.sum
+            gen/go/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            ai-worker/requirements.txt
+            sandbox-runner/requirements.txt
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          version: "1.47.2"
+      - name: Install Python test dependencies
+        run: python -m pip install -r ai-worker/requirements.txt -r sandbox-runner/requirements.txt
+      - name: Install pinned protobuf generators
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.2
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.4.0
+      - name: Validate protobuf sources and generated code
+        run: |
+          buf lint
+          PATH="$(go env GOPATH)/bin:$PATH" buf generate
+          git diff --exit-code -- proto gen/go
+      - name: Apply every database migration
+        env:
+          PGPASSWORD: test-password
+        run: |
+          for migration in infra/migrations/*.sql; do
+            psql -h 127.0.0.1 -U opspilot -d opspilot -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Run Go and Python suites
+        run: make test
+      - name: Validate Compose expansion
+        env:
+          CLERK_SECRET_KEY: test-only
+          AI_WORKER_INTERNAL_TOKEN: test-only-internal-token
+          SANDBOX_RUNNER_INTERNAL_TOKEN: test-only-sandbox-token
+        run: docker compose config --quiet
+
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api-gateway
+            context: .
+            dockerfile: services/api-gateway/Dockerfile
+          - name: auth-service
+            context: .
+            dockerfile: services/auth-service/Dockerfile
+          - name: workspace-service
+            context: .
+            dockerfile: services/workspace-service/Dockerfile
+          - name: project-service
+            context: .
+            dockerfile: services/project-service/Dockerfile
+          - name: integration-service
+            context: .
+            dockerfile: services/integration-service/Dockerfile
+          - name: ai-worker
+            context: ai-worker
+            dockerfile: ai-worker/Dockerfile
+          - name: sandbox-runner
+            context: sandbox-runner
+            dockerfile: sandbox-runner/Dockerfile
+          - name: frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: opspilot/${{ matrix.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

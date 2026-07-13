@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/nats-io/nats.go"
 	integrationv1 "github.com/opspilot/gen/proto/integration/v1"
 	"github.com/opspilot/integration-service/internal/config"
 	"github.com/opspilot/integration-service/internal/db"
@@ -59,7 +60,30 @@ func main() {
 		),
 	)
 
-	integrationv1.RegisterIntegrationServiceServer(grpcSrv, server.New(pool, cfg, logger))
+	var publisher server.EventPublisher
+	natsConnection, natsErr := nats.Connect(cfg.NATSURL, nats.Name("opspilot-integration-service"), nats.Timeout(3*time.Second))
+	if natsErr != nil {
+		logger.Warn("NATS unavailable; ingestion jobs will rely on database recovery", "error", natsErr)
+	} else {
+		defer natsConnection.Close()
+		jetStream, jsErr := natsConnection.JetStream()
+		if jsErr != nil {
+			logger.Warn("JetStream unavailable; ingestion jobs will rely on database recovery", "error", jsErr)
+		} else {
+			if _, streamErr := jetStream.StreamInfo("OPSPILOT_INGESTION"); streamErr == nats.ErrStreamNotFound {
+				_, streamErr = jetStream.AddStream(&nats.StreamConfig{
+					Name:     "OPSPILOT_INGESTION",
+					Subjects: []string{"repo.ingestion.requested"},
+				})
+				if streamErr != nil {
+					logger.Warn("failed to create ingestion stream; database recovery remains active", "error", streamErr)
+				}
+			}
+			publisher = &jetStreamPublisher{context: jetStream}
+		}
+	}
+
+	integrationv1.RegisterIntegrationServiceServer(grpcSrv, server.New(pool, cfg, logger, publisher))
 	reflection.Register(grpcSrv)
 
 	logger.Info("integration-service started",
@@ -80,6 +104,15 @@ func main() {
 		logger.Error("grpc server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+type jetStreamPublisher struct {
+	context nats.JetStreamContext
+}
+
+func (p *jetStreamPublisher) Publish(ctx context.Context, subject string, payload []byte) error {
+	_, err := p.context.Publish(subject, payload, nats.Context(ctx))
+	return err
 }
 
 func startHealthServer(port string, pool *pgxpool.Pool, logger *slog.Logger) {

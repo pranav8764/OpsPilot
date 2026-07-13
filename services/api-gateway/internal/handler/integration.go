@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/opspilot/api-gateway/internal/middleware"
@@ -17,18 +18,124 @@ type IntegrationHandler struct {
 	authClient        authv1.AuthServiceClient
 	integrationClient integrationv1.IntegrationServiceClient
 	logger            *slog.Logger
+	frontendURL       string
 }
 
 func NewIntegrationHandler(
 	authClient authv1.AuthServiceClient,
 	integrationClient integrationv1.IntegrationServiceClient,
+	frontendURL string,
 	logger *slog.Logger,
 ) *IntegrationHandler {
 	return &IntegrationHandler{
 		authClient:        authClient,
 		integrationClient: integrationClient,
+		frontendURL:       strings.TrimRight(frontendURL, "/"),
 		logger:            logger,
 	}
+}
+
+// CreateGitHubInstallSession returns a one-time GitHub installation URL whose
+// opaque state is bound server-side to the authenticated user and workspace.
+// POST /api/v1/workspaces/{workspaceId}/integrations/github/install-session
+func (h *IntegrationHandler) CreateGitHubInstallSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractWorkspaceID(r.URL.Path)
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "workspace id required")
+		return
+	}
+	resp, err := h.integrationClient.CreateGitHubInstallSession(r.Context(), &integrationv1.CreateGitHubInstallSessionRequest{
+		UserId: userID, WorkspaceId: workspaceID,
+	})
+	if err != nil {
+		h.logger.Error("create GitHub install session failed", "error", err)
+		writeError(w, http.StatusBadGateway, "GITHUB_INSTALL_SESSION_FAILED", "failed to prepare GitHub installation")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"install_url": resp.InstallUrl, "expires_at": resp.ExpiresAt})
+}
+
+// UpsertLogProvider stores an encrypted, least-privilege provider token. The
+// token is write-only and never appears in API responses.
+// POST /api/v1/workspaces/{workspaceId}/integrations/log-providers
+func (h *IntegrationHandler) UpsertLogProvider(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractWorkspaceID(r.URL.Path)
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var body struct {
+		Provider     string `json:"provider"`
+		DisplayName  string `json:"display_name"`
+		Token        string `json:"token"`
+		ProjectID    string `json:"project_id"`
+		DeploymentID string `json:"deployment_id"`
+		ScopeID      string `json:"scope_id"`
+		TokenKind    string `json:"token_kind"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if workspaceID == "" || decoder.Decode(&body) != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "workspace and valid provider connection details are required")
+		return
+	}
+	resp, err := h.integrationClient.UpsertLogProviderConnection(r.Context(), &integrationv1.UpsertLogProviderConnectionRequest{
+		UserId: userID, WorkspaceId: workspaceID, Provider: body.Provider,
+		DisplayName: body.DisplayName, Token: body.Token, ProjectId: body.ProjectID,
+		DeploymentId: body.DeploymentID, ScopeId: body.ScopeID, TokenKind: body.TokenKind,
+	})
+	if err != nil {
+		h.logger.Warn("upsert log provider failed", "error", err, "workspace_id", workspaceID)
+		writeError(w, http.StatusBadRequest, "LOG_PROVIDER_SAVE_FAILED", "provider connection could not be saved; check its fields and encryption configuration")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"connection": resp.Connection})
+}
+
+// ListLogProviders returns connection metadata without credentials.
+// GET /api/v1/workspaces/{workspaceId}/integrations/log-providers
+func (h *IntegrationHandler) ListLogProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractWorkspaceID(r.URL.Path)
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "workspace id required")
+		return
+	}
+	resp, err := h.integrationClient.ListLogProviderConnections(r.Context(), &integrationv1.ListLogProviderConnectionsRequest{
+		UserId: userID, WorkspaceId: workspaceID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "LOG_PROVIDER_LIST_FAILED", "failed to list provider connections")
+		return
+	}
+	connections := resp.Connections
+	if connections == nil {
+		connections = []*integrationv1.LogProviderConnection{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connections": connections})
 }
 
 func (h *IntegrationHandler) resolveUserID(r *http.Request) (string, error) {
@@ -74,34 +181,29 @@ func (h *IntegrationHandler) GitHubConfig(w http.ResponseWriter, r *http.Request
 // GitHubCallback handles redirect from GitHub after app installation.
 // GET /api/v1/integrations/github/callback
 func (h *IntegrationHandler) GitHubCallback(w http.ResponseWriter, r *http.Request) {
-	userID, err := h.resolveUserID(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
 	instIDStr := r.URL.Query().Get("installation_id")
 	if instIDStr == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "installation_id is required")
 		return
 	}
 	var installationID int64
-	_, err = fmt.Sscanf(instIDStr, "%d", &installationID)
+	_, err := fmt.Sscanf(instIDStr, "%d", &installationID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid installation_id")
 		return
 	}
 
-	workspaceID := r.URL.Query().Get("state")
-	if workspaceID == "" {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "state (workspace_id) is required")
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "state is required")
 		return
 	}
-
-	resp, err := h.integrationClient.HandleGitHubCallback(r.Context(), &integrationv1.HandleGitHubCallbackRequest{
-		UserId:         userID,
-		WorkspaceId:    workspaceID,
-		InstallationId: installationID,
+	resp, err := h.integrationClient.CompleteGitHubInstallSession(r.Context(), &integrationv1.CompleteGitHubInstallSessionRequest{
+		State: state, InstallationId: installationID,
 	})
 	if err != nil {
 		h.logger.Error("handle callback failed", "error", err)
@@ -109,16 +211,8 @@ func (h *IntegrationHandler) GitHubCallback(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Check if the request wants JSON or HTML redirect
-	if strings.Contains(r.Header.Get("Accept"), "application/json") {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"installation": resp.Installation,
-		})
-	} else {
-		// Redirect back to frontend dashboard
-		redirectURL := fmt.Sprintf("http://localhost:3000/dashboard/%s", workspaceID)
-		http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
-	}
+	redirectURL := h.frontendURL + "/dashboard/" + url.PathEscape(resp.WorkspaceId) + "?github=connected"
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // ListInstallations lists installations connected to workspace.
@@ -377,4 +471,66 @@ func (h *IntegrationHandler) GitHubWebhook(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// DecideFixApproval approves/rejects a pinned fix proposal. The Integration
+// Service independently enforces role, expiry, payload integrity, and tool policy.
+func (h *IntegrationHandler) DecideFixApproval(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	workspaceID := extractWorkspaceID(r.URL.Path)
+	parts := strings.Split(r.URL.Path, "/")
+	var projectID, approvalID string
+	for index, part := range parts {
+		if part == "projects" && index+1 < len(parts) {
+			projectID = parts[index+1]
+		}
+		if part == "approvals" && index+1 < len(parts) {
+			approvalID = parts[index+1]
+		}
+	}
+	if workspaceID == "" || projectID == "" || approvalID == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_ID", "workspace, project, and approval ids are required")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var body struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid approval decision")
+		return
+	}
+	body.Decision = strings.ToLower(strings.TrimSpace(body.Decision))
+	if body.Decision != "approve" && body.Decision != "reject" {
+		writeError(w, http.StatusBadRequest, "INVALID_DECISION", "decision must be approve or reject")
+		return
+	}
+
+	response, err := h.integrationClient.DecideFixApproval(r.Context(), &integrationv1.DecideFixApprovalRequest{
+		UserId: userID, WorkspaceId: workspaceID, ProjectId: projectID,
+		ApprovalId: approvalID, Decision: body.Decision, Reason: body.Reason,
+	})
+	if err != nil {
+		h.logger.Error("fix approval decision failed", "error", err, "approval_id", approvalID)
+		writeError(w, http.StatusConflict, "APPROVAL_FAILED", "approval could not be applied or the draft PR could not be created")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"approval_id":         response.ApprovalId,
+		"approval_status":     response.ApprovalStatus,
+		"pull_request_url":    response.PullRequestUrl,
+		"pull_request_number": response.PullRequestNumber,
+		"branch":              response.Branch,
+	})
 }

@@ -1,4 +1,8 @@
-version: '3.9'
+x-service-hardening: &service-hardening
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m"]
 
 services:
   # ── Infrastructure ────────────────────────────────────────────
@@ -41,7 +45,9 @@ services:
     ports:
       - "4222:4222"
       - "8222:8222"   # NATS monitoring UI
-    command: ["--http_port", "8222"]
+    command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
+    volumes:
+      - nats_data:/data
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
       interval: 5s
@@ -51,6 +57,7 @@ services:
   # ── Go Microservices ──────────────────────────────────────────
 
   auth-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
@@ -74,6 +81,7 @@ services:
       retries: 5
 
   workspace-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/workspace-service/Dockerfile
@@ -96,6 +104,7 @@ services:
       retries: 5
 
   project-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/project-service/Dockerfile
@@ -118,6 +127,7 @@ services:
       retries: 5
 
   integration-service:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/integration-service/Dockerfile
@@ -130,6 +140,7 @@ services:
       INTEGRATION_SERVICE_PORT: "9004"
       INTEGRATION_SERVICE_HEALTH_PORT: "8084"
       DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
@@ -139,10 +150,13 @@ services:
       GITHUB_APP_INSTALL_URL: ${GITHUB_APP_INSTALL_URL:-}
       GITHUB_APP_CALLBACK_URL: ${GITHUB_APP_CALLBACK_URL:-}
       GITHUB_WEBHOOK_URL: ${GITHUB_WEBHOOK_URL:-}
+      GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2026-03-10}
     volumes:
       - ./secrets:/app/secrets:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
@@ -151,6 +165,7 @@ services:
       retries: 5
 
   api-gateway:
+    <<: *service-hardening
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
@@ -166,6 +181,11 @@ services:
       WORKSPACE_SERVICE_ADDR: workspace-service:9002
       PROJECT_SERVICE_ADDR: project-service:9003
       INTEGRATION_SERVICE_ADDR: integration-service:9004
+      AI_WORKER_URL: http://ai-worker:8090
+      AI_WORKER_INTERNAL_TOKEN: ${AI_WORKER_INTERNAL_TOKEN:?Set AI_WORKER_INTERNAL_TOKEN to a high-entropy value}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
     depends_on:
       auth-service:
         condition: service_healthy
@@ -175,34 +195,122 @@ services:
         condition: service_healthy
       integration-service:
         condition: service_healthy
+      ai-worker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # ── AI Worker (Phase 3 skeleton) ───────────────────────────────
+  # ── Isolated fix verification ─────────────────────────────────
+
+  sandbox-runner:
+    build:
+      context: ./sandbox-runner
+      dockerfile: Dockerfile
+    container_name: opspilot-sandbox-runner
+    restart: unless-stopped
+    expose:
+      - "8092"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m"]
+    environment:
+      SANDBOX_RUNNER_INTERNAL_TOKEN: ${SANDBOX_RUNNER_INTERNAL_TOKEN:?Set SANDBOX_RUNNER_INTERNAL_TOKEN to a high-entropy value}
+      HOME: /tmp
+    volumes:
+      # The runner is the only component allowed to reach the Docker daemon.
+      # Its API accepts only bounded repository files and emits hardened
+      # docker-run invocations; do not expose port 8092 publicly.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8092/health | grep -q '\"status\":\"ok\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── AI Worker ──────────────────────────────────────────────────
 
   ai-worker:
+    <<: *service-hardening
     build:
       context: ./ai-worker
       dockerfile: Dockerfile
     container_name: opspilot-ai-worker
     restart: unless-stopped
-    ports:
-      - "8090:8090"
+    expose:
+      - "8090"
     environment:
       AI_WORKER_PORT: "8090"
+      PYTHONDONTWRITEBYTECODE: "1"
       DATABASE_URL: ${DATABASE_URL:-postgres://opspilot:opspilot_secret@postgres:5432/opspilot?sslmode=disable}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       NATS_URL: ${NATS_URL:-nats://nats:4222}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH:-}
+      GITHUB_APP_PRIVATE_KEY_BASE64: ${GITHUB_APP_PRIVATE_KEY_BASE64:-}
+      GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2026-03-10}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-gemini-embedding-2}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-768}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      RUN_BACKGROUND_WORKER: "true"
+      RETENTION_CLEANUP_SECONDS: ${RETENTION_CLEANUP_SECONDS:-3600}
+      AI_WORKER_INTERNAL_TOKEN: ${AI_WORKER_INTERNAL_TOKEN:?Set AI_WORKER_INTERNAL_TOKEN to a high-entropy value}
+      SANDBOX_RUNNER_URL: http://sandbox-runner:8092
+      SANDBOX_RUNNER_INTERNAL_TOKEN: ${SANDBOX_RUNNER_INTERNAL_TOKEN:?Set SANDBOX_RUNNER_INTERNAL_TOKEN to a high-entropy value}
+    volumes:
+      - ./secrets:/app/secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
       nats:
         condition: service_healthy
+      sandbox-runner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Web application ───────────────────────────────────────────
+
+  frontend:
+    <<: *service-hardening
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_local_placeholder}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    container_name: opspilot-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_local_placeholder}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_SIGN_IN_URL:-/sign-in}
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_SIGN_UP_URL:-/sign-up}
+      NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL: ${NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL:-/dashboard}
+      NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL: ${NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL:-/dashboard}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /app/.next/cache:rw,nosuid,nodev,size=64m,uid=1000,gid=1000
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   postgres_data:
-    name: opspilot_postgres_data
+  nats_data:

@@ -1,114 +1,120 @@
 # OpsPilot
 
-> Agentic AI DevOps Assistant for Small Teams
+OpsPilot is an approval-gated AI incident-to-fix control plane. It connects a GitHub repository and production log source, builds evidence from a pinned commit, diagnoses an incident, verifies a bounded patch in an isolated runner, and opens a **draft** FIX pull request only after an authorized human approves the exact diff.
 
-OpsPilot helps small engineering teams deploy, monitor, debug, and recover applications using Agentic AI + RAG.
+It is deliberately not an autonomous production operator: it cannot merge a PR, push to the default branch, deploy, roll back, or run an arbitrary model-generated shell command.
+
+## What works
+
+- Clerk authentication, workspace RBAC, project limits, usage accounting, and auditable project deletion.
+- One-time GitHub App installation sessions; repository selection is revalidated server-side.
+- Durable NATS/JetStream repository ingestion with database recovery, filtering, redaction, chunking, local or Gemini embeddings, and hybrid cited retrieval.
+- Manual, Vercel, and Railway build/runtime log collection. Provider tokens are AES-256-GCM encrypted and never returned to the browser.
+- Redacted, evidence-backed RCA with durable incident/workflow/step history and explicit insufficient-context states.
+- Pinned fix proposals with file/path/size/secret policy checks and baseline-versus-patched sandbox verification.
+- Expiring approval records whose payload hash binds the reviewed diff, base commit, and intended action.
+- GitHub draft PR publication on a new `opspilot/fix-*` branch after approval; base SHA and original file hashes are checked again immediately before writing.
+- Deployment-readiness scan plus deterministic Dockerfile, Compose, and names-only `.env.example` drafts for Node/Next.js, Python, and Go.
+- Configurable 1–365 day stored-log retention (30 days by default), low-cardinality Prometheus metrics, JSON logs, correlation IDs, health/readiness checks, CORS allowlists, and rate limiting.
+
+## Orchestration
+
+```mermaid
+flowchart LR
+  A["Vercel / Railway / manual logs"] --> B["Bounded collection + normalization"]
+  B --> C["Secret redaction + fingerprint"]
+  C --> D["Durable incident workflow"]
+  D --> E["Pinned repository retrieval"]
+  E --> F["Evidence-backed RCA"]
+  F --> G["Bounded fix proposal"]
+  G --> H["Policy + secret scan"]
+  H --> I["Baseline and patched sandbox tests"]
+  I --> J["Exact diff + expiring approval"]
+  J -->|approved| K["Revalidate SHA and file hashes"]
+  K --> L["New branch + draft FIX PR"]
+  J -->|rejected / expired| M["Stop and audit"]
+```
+
+The LLM proposes analysis and code. Deterministic services own identity, authorization, state transitions, limits, encryption, tool execution, approval validation, and GitHub writes. See [Architecture and threat model](docs/ARCHITECTURE.md) for tool contracts and failure modes.
 
 ## Architecture
 
-```
-Frontend (Next.js)  →  API Gateway (Go :8080)  →  gRPC Services
-                                                    ├── Auth Service     :9001
-                                                    ├── Workspace Service :9002
-                                                    ├── Project Service  :9003
-                                                    └── Integration Service :9004
+| Component | Responsibility |
+| --- | --- |
+| Next.js frontend | Operations cockpit, evidence, usage, readiness, diff review, approvals |
+| Go API gateway | Clerk auth boundary, tenant checks, routing, rate/CORS/security policy, request correlation |
+| Go auth/workspace/project services | Identity mapping, RBAC, lifecycle controls, project limits |
+| Go integration service | GitHub App, encrypted Vercel/Railway credentials, log adapters, approval execution, draft PR writer |
+| Python AI worker | Ingestion, embeddings, RAG, RCA, fix proposal, usage enforcement, retention cleanup |
+| Sandbox runner | Narrow internal verification API backed by hardened ephemeral Docker containers |
+| PostgreSQL + pgvector | Tenant-scoped durable state, vectors, workflows, approvals, audits, usage |
+| NATS JetStream | Durable ingestion wakeups; database polling is the recovery path |
 
-Infrastructure: PostgreSQL + pgvector | Redis | NATS
-AI Worker: Python FastAPI (Phase 3)
-```
+## Quick start
 
-## Current Build Plan
+Requirements: Docker Desktop, Go 1.22+, Node.js 22+, Python 3.12+, and a Clerk application.
 
-The practical implementation plan is tracked in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md).
-
-Current build target:
-
-```
-GitHub-connected project -> repository ingestion -> source-cited project Q&A
-```
-
-The GitHub App connection slice is working locally: OpsPilot can install a GitHub App, store the installation, list accessible repositories, attach a repository to a project, and create a queued ingestion job. The next major work is processing queued ingestion jobs by fetching repository files, indexing/chunking them, then adding embeddings, retrieval, and a cited project Q&A UI.
-
-GitHub milestone docs:
-
-- [GitHub App setup](./docs/github-app-setup.md)
-- [GitHub API contract](./docs/github-integration-api-contract.md)
-- [Local GitHub milestone checklist](./docs/local-github-milestone-checklist.md)
-
-## Prerequisites
-
-| Tool | Version | Install |
-|---|---|---|
-| Docker Desktop | Latest | [docker.com](https://docker.com) |
-| Go | 1.22+ | `brew install go` |
-| Node.js | 20+ | `brew install node` |
-| Python | 3.11+ | `brew install python@3.11` |
-
-## Quick Start
-
-### 1. Clone & Setup
 ```bash
 cp .env.example .env
-# Fill in your API keys (see .env.example for details)
+openssl rand -base64 32   # CREDENTIAL_ENCRYPTION_KEY
+openssl rand -hex 32      # AI_WORKER_INTERNAL_TOKEN
+openssl rand -hex 32      # SANDBOX_RUNNER_INTERNAL_TOKEN
 ```
 
-### 2. Start Infrastructure + Backend
-```bash
-make up
-```
+Fill the Clerk and GitHub App values, then:
 
-For local GitHub App private-key loading, keep the `.pem` file under `secrets/`. Docker Compose mounts this directory into the Integration Service as read-only.
-
-### 3. Run Migrations
 ```bash
+docker compose up --build -d
 make migrate
+make health
 ```
 
-### 4. Start Frontend
+Open [http://localhost:3000](http://localhost:3000). The sandbox runner requires a working Docker daemon and is intentionally not published to the host.
+
+For frontend hot reload during development, stop the Compose frontend and run `cd frontend && npm ci && npm run dev`.
+
+Detailed setup and production checks are in [Operations](docs/OPERATIONS.md) and [GitHub App setup](docs/github-app-setup.md).
+
+## Verification
+
 ```bash
+make test
+
 cd frontend
-npm install
-npm run dev
+npm test
+npm run lint
+npm run build
+
+cd ..
+AI_WORKER_INTERNAL_TOKEN=test-only \
+SANDBOX_RUNNER_INTERNAL_TOKEN=test-only \
+CLERK_SECRET_KEY=test-only \
+docker compose config --quiet
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+CI also applies every migration to PostgreSQL/pgvector, verifies generated protobufs, and builds every backend and frontend image. A live end-to-end run additionally needs real Clerk, GitHub App, AI-provider, and log-provider credentials.
 
-## Environment Variables
+## Security invariants
 
-See `.env.example` for all required variables. You need:
-- **Clerk** keys → [clerk.com](https://clerk.com) (free)
-- **GitHub App** values → [GitHub App setup](./docs/github-app-setup.md)
-- **Groq** API key → [groq.com](https://groq.com) (free, Phase 3)
-- **Gemini** API key → [aistudio.google.com](https://aistudio.google.com) (free, Phase 3)
+- Repository/log/webhook text is data, never trusted instruction.
+- Every tenant identifier is reauthorized at the service that owns the resource.
+- The model has no generic shell, HTTP, database, merge, deploy, or secret-reading tool.
+- External writes require an expiring, single-use approval over a canonical payload hash.
+- Fixes are limited to safe text paths; `.github/workflows`, secrets, keys, binaries, generated/vendor paths, and oversized changes are blocked.
+- Verification source runs with no network, non-root UID, read-only container root, dropped capabilities, bounded CPU/memory/PIDs/time/output.
+- Dependency installation sees manifests/lockfiles only; repository source is mounted after egress is disabled.
+- The default branch is never modified. The only repository write is a new branch and draft pull request.
+- The Docker socket is mounted only into the internal runner; treat that runner as a privileged security boundary.
 
-For local GitHub setup:
+## Product direction
 
-```bash
-openssl rand -base64 32
-```
+[Product analysis](docs/PRODUCT_ANALYSIS.md) compares OpsPilot with Sentry Seer, Resolve AI, Rootly AI SRE, Datadog Bits AI, incident.io Investigations, and GitHub coding agents. The highest-value next additions are alert-triggered investigations, an evidence graph with parallel hypotheses, richer telemetry adapters, incident feedback/evaluation, and a bounded CI-feedback loop on existing draft PRs.
 
-Use the output for `CREDENTIAL_ENCRYPTION_KEY`. Put the GitHub-downloaded `.pem` private key in `secrets/` and set `GITHUB_APP_PRIVATE_KEY_PATH` to that path. Leave `GITHUB_APP_PRIVATE_KEY_BASE64` empty unless you intentionally use the base64-encoded PEM option.
+## Current limits
 
-## Make Commands
-
-```bash
-make up          # Start all Docker services
-make down        # Stop all services
-make migrate     # Run database migrations
-make health      # Check all service health endpoints
-make logs        # Tail logs from all services
-make clean       # Remove containers and volumes
-```
-
-## Phase Build Status
-
-- [x] **Phase 1** — Foundation (Auth, Workspace, Project, Dashboard)
-- [x] **Phase 2a** — GitHub App connection, repository selection, and queued ingestion job
-- [ ] **Phase 2b** — Repository ingestion worker
-- [ ] **Phase 3** — RAG Pipeline (Groq + Gemini Embeddings)
-- [ ] **Phase 4** — AI Chat
-- [ ] **Phase 5** — DevOps Workflows
-- [ ] **Phase 6** — Log Analysis & Incident Memory
-- [ ] **Phase 7** — Tool Calling & Approvals
-- [ ] **Phase 8** — Billing & Usage Limits
-- [ ] **Phase 9** — Production Hardening
+- GitHub is the only source-control provider; one primary repository is supported per project.
+- Vercel and Railway are the only production-log adapters.
+- The local embedding provider is deterministic and private but lower quality than Gemini.
+- Sandbox verification recognizes npm lint/build/test, pytest, and Go tests. No recognized tests means the fix is not considered verified.
+- OpsPilot creates draft PRs only. Merge, deploy, rollback, infrastructure mutation, and arbitrary remediation are outside this release.
+- Compose is a development/single-host topology. A production deployment still needs managed PostgreSQL, backups, TLS/ingress, secret management, private service networking, image scanning, and distributed rate limiting.
