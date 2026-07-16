@@ -2,11 +2,15 @@ package middleware
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	clerkSDK "github.com/clerk/clerk-sdk-go/v2"
@@ -22,6 +26,7 @@ const (
 	EmailKey       contextKey = "email"
 	NameKey        contextKey = "name"
 	TokenKey       contextKey = "token"
+	RequestIDKey   contextKey = "request_id"
 )
 
 // UserContext holds the authenticated user's information.
@@ -74,7 +79,7 @@ func RequireAuth(clerkSecretKey string, logger *slog.Logger) func(http.Handler) 
 
 			// Forward minimal user info from token claims
 			// Full user data is fetched from auth-service when needed
-			ctx = context.WithValue(ctx, UserIDKey, "")    // populated after SyncUser
+			ctx = context.WithValue(ctx, UserIDKey, "") // populated after SyncUser
 			ctx = context.WithValue(ctx, EmailKey, "")
 			ctx = context.WithValue(ctx, NameKey, "")
 
@@ -96,21 +101,112 @@ func Logging(logger *slog.Logger) func(http.Handler) http.Handler {
 				"status", rw.statusCode,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user_agent", r.UserAgent(),
+				"request_id", RequestIDFromContext(r.Context()),
 			)
 		})
 	}
 }
 
-// RequestID adds a unique request ID to each request (simple version).
+// RequestID adds a bounded correlation ID. Untrusted values are rejected so
+// they cannot create log-injection or oversized-header problems.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
+		if !validRequestID(reqID) {
 			reqID = generateID()
 		}
 		w.Header().Set("X-Request-ID", reqID)
-		next.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), RequestIDKey, reqID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func RequestIDFromContext(ctx context.Context) string {
+	value, _ := ctx.Value(RequestIDKey).(string)
+	return value
+}
+
+func validRequestID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, char := range value {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+type rateBucket struct {
+	windowStart time.Time
+	count       int
+}
+
+// RateLimit bounds abusive traffic per authenticated token fingerprint (or
+// remote address for public routes). It intentionally never stores bearer
+// tokens. A distributed limiter can replace this middleware at multi-region scale.
+func RateLimit(maxRequests int, window time.Duration, logger *slog.Logger) func(http.Handler) http.Handler {
+	var mutex sync.Mutex
+	buckets := make(map[string]rateBucket)
+	lastCleanup := time.Now()
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := r.RemoteAddr
+			if token := extractBearerToken(r); token != "" {
+				digest := sha256.Sum256([]byte(token))
+				key = "token:" + hex.EncodeToString(digest[:16])
+			}
+			now := time.Now()
+			mutex.Lock()
+			bucket := buckets[key]
+			if bucket.windowStart.IsZero() || now.Sub(bucket.windowStart) >= window {
+				bucket = rateBucket{windowStart: now}
+			}
+			bucket.count++
+			buckets[key] = bucket
+			if now.Sub(lastCleanup) >= 5*window {
+				for candidate, value := range buckets {
+					if now.Sub(value.windowStart) >= window {
+						delete(buckets, candidate)
+					}
+				}
+				lastCleanup = now
+			}
+			remaining := max(0, maxRequests-bucket.count)
+			limited := bucket.count > maxRequests
+			reset := int(window.Seconds() - now.Sub(bucket.windowStart).Seconds())
+			mutex.Unlock()
+
+			w.Header().Set("X-RateLimit-Limit", fmt.Sprintf("%d", maxRequests))
+			w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+			w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", max(0, reset)))
+			if limited {
+				logger.Warn("request rate limit exceeded", "path", r.URL.Path)
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", max(1, reset)))
+				writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Too many requests; retry after the current window")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func SecurityHeaders(production bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("Referrer-Policy", "no-referrer")
+			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+			if production {
+				w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -147,5 +243,9 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err == nil {
+		return hex.EncodeToString(bytes)
+	}
+	return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
 }

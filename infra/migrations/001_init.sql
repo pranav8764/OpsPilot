@@ -1,9 +1,9 @@
 -- ============================================================
--- OpsPilot — Phase 1 Database Schema
+-- OpsPilot — foundational database schema
 -- Migration: 001_init.sql
 -- ============================================================
 
--- Enable pgvector extension (for Phase 3 RAG)
+-- Enable pgvector extension for repository retrieval.
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 
--- ── Audit Logs (Phase 1 basic) ──────────────────────────────────
+-- ── Audit Logs ──────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS audit_logs (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -114,7 +114,7 @@ CREATE TRIGGER update_projects_updated_at
     BEFORE UPDATE ON projects
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- ── Phase 3 Tables (vector) — created now, used later ──────────
+-- ── Repository vector tables ───────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS documents (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     document_id     UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_text      TEXT NOT NULL,
-    embedding       VECTOR(768),                    -- Gemini text-embedding-004 = 768 dims
+    embedding       VECTOR(768),                    -- normalized embedding size used by configured providers
     file_path       TEXT,
     file_type       TEXT,
     language        TEXT,
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_document_chunks_project_id ON document_chunks(project_id);
 CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);
--- Vector similarity index (cosine) — used in Phase 3
+-- Vector similarity index (cosine)
 CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
     ON document_chunks USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
@@ -155,5 +155,5 @@ CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
 -- ── Done ────────────────────────────────────────────────────────
 
 DO $$ BEGIN
-    RAISE NOTICE 'OpsPilot Phase 1 schema migration complete ✅';
+    RAISE NOTICE 'OpsPilot foundational schema migration complete';
 END $$;

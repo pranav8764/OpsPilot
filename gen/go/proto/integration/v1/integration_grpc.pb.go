@@ -19,13 +19,19 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	IntegrationService_GetGitHubConfig_FullMethodName         = "/opspilot.integration.v1.IntegrationService/GetGitHubConfig"
-	IntegrationService_HandleGitHubCallback_FullMethodName    = "/opspilot.integration.v1.IntegrationService/HandleGitHubCallback"
-	IntegrationService_ListInstallations_FullMethodName       = "/opspilot.integration.v1.IntegrationService/ListInstallations"
-	IntegrationService_ListRepositories_FullMethodName        = "/opspilot.integration.v1.IntegrationService/ListRepositories"
-	IntegrationService_AttachRepository_FullMethodName        = "/opspilot.integration.v1.IntegrationService/AttachRepository"
-	IntegrationService_GetRepositoryConnection_FullMethodName = "/opspilot.integration.v1.IntegrationService/GetRepositoryConnection"
-	IntegrationService_HandleGitHubWebhook_FullMethodName     = "/opspilot.integration.v1.IntegrationService/HandleGitHubWebhook"
+	IntegrationService_GetGitHubConfig_FullMethodName              = "/opspilot.integration.v1.IntegrationService/GetGitHubConfig"
+	IntegrationService_CreateGitHubInstallSession_FullMethodName   = "/opspilot.integration.v1.IntegrationService/CreateGitHubInstallSession"
+	IntegrationService_CompleteGitHubInstallSession_FullMethodName = "/opspilot.integration.v1.IntegrationService/CompleteGitHubInstallSession"
+	IntegrationService_HandleGitHubCallback_FullMethodName         = "/opspilot.integration.v1.IntegrationService/HandleGitHubCallback"
+	IntegrationService_ListInstallations_FullMethodName            = "/opspilot.integration.v1.IntegrationService/ListInstallations"
+	IntegrationService_ListRepositories_FullMethodName             = "/opspilot.integration.v1.IntegrationService/ListRepositories"
+	IntegrationService_AttachRepository_FullMethodName             = "/opspilot.integration.v1.IntegrationService/AttachRepository"
+	IntegrationService_GetRepositoryConnection_FullMethodName      = "/opspilot.integration.v1.IntegrationService/GetRepositoryConnection"
+	IntegrationService_HandleGitHubWebhook_FullMethodName          = "/opspilot.integration.v1.IntegrationService/HandleGitHubWebhook"
+	IntegrationService_DecideFixApproval_FullMethodName            = "/opspilot.integration.v1.IntegrationService/DecideFixApproval"
+	IntegrationService_UpsertLogProviderConnection_FullMethodName  = "/opspilot.integration.v1.IntegrationService/UpsertLogProviderConnection"
+	IntegrationService_ListLogProviderConnections_FullMethodName   = "/opspilot.integration.v1.IntegrationService/ListLogProviderConnections"
+	IntegrationService_CollectProviderLogs_FullMethodName          = "/opspilot.integration.v1.IntegrationService/CollectProviderLogs"
 )
 
 // IntegrationServiceClient is the client API for IntegrationService service.
@@ -33,12 +39,18 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IntegrationServiceClient interface {
 	GetGitHubConfig(ctx context.Context, in *GetGitHubConfigRequest, opts ...grpc.CallOption) (*GetGitHubConfigResponse, error)
+	CreateGitHubInstallSession(ctx context.Context, in *CreateGitHubInstallSessionRequest, opts ...grpc.CallOption) (*CreateGitHubInstallSessionResponse, error)
+	CompleteGitHubInstallSession(ctx context.Context, in *CompleteGitHubInstallSessionRequest, opts ...grpc.CallOption) (*CompleteGitHubInstallSessionResponse, error)
 	HandleGitHubCallback(ctx context.Context, in *HandleGitHubCallbackRequest, opts ...grpc.CallOption) (*HandleGitHubCallbackResponse, error)
 	ListInstallations(ctx context.Context, in *ListInstallationsRequest, opts ...grpc.CallOption) (*ListInstallationsResponse, error)
 	ListRepositories(ctx context.Context, in *ListRepositoriesRequest, opts ...grpc.CallOption) (*ListRepositoriesResponse, error)
 	AttachRepository(ctx context.Context, in *AttachRepositoryRequest, opts ...grpc.CallOption) (*AttachRepositoryResponse, error)
 	GetRepositoryConnection(ctx context.Context, in *GetRepositoryConnectionRequest, opts ...grpc.CallOption) (*GetRepositoryConnectionResponse, error)
 	HandleGitHubWebhook(ctx context.Context, in *HandleGitHubWebhookRequest, opts ...grpc.CallOption) (*HandleGitHubWebhookResponse, error)
+	DecideFixApproval(ctx context.Context, in *DecideFixApprovalRequest, opts ...grpc.CallOption) (*DecideFixApprovalResponse, error)
+	UpsertLogProviderConnection(ctx context.Context, in *UpsertLogProviderConnectionRequest, opts ...grpc.CallOption) (*UpsertLogProviderConnectionResponse, error)
+	ListLogProviderConnections(ctx context.Context, in *ListLogProviderConnectionsRequest, opts ...grpc.CallOption) (*ListLogProviderConnectionsResponse, error)
+	CollectProviderLogs(ctx context.Context, in *CollectProviderLogsRequest, opts ...grpc.CallOption) (*CollectProviderLogsResponse, error)
 }
 
 type integrationServiceClient struct {
@@ -53,6 +65,26 @@ func (c *integrationServiceClient) GetGitHubConfig(ctx context.Context, in *GetG
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetGitHubConfigResponse)
 	err := c.cc.Invoke(ctx, IntegrationService_GetGitHubConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) CreateGitHubInstallSession(ctx context.Context, in *CreateGitHubInstallSessionRequest, opts ...grpc.CallOption) (*CreateGitHubInstallSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateGitHubInstallSessionResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_CreateGitHubInstallSession_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) CompleteGitHubInstallSession(ctx context.Context, in *CompleteGitHubInstallSessionRequest, opts ...grpc.CallOption) (*CompleteGitHubInstallSessionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteGitHubInstallSessionResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_CompleteGitHubInstallSession_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -119,17 +151,63 @@ func (c *integrationServiceClient) HandleGitHubWebhook(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *integrationServiceClient) DecideFixApproval(ctx context.Context, in *DecideFixApprovalRequest, opts ...grpc.CallOption) (*DecideFixApprovalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecideFixApprovalResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_DecideFixApproval_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) UpsertLogProviderConnection(ctx context.Context, in *UpsertLogProviderConnectionRequest, opts ...grpc.CallOption) (*UpsertLogProviderConnectionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpsertLogProviderConnectionResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_UpsertLogProviderConnection_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) ListLogProviderConnections(ctx context.Context, in *ListLogProviderConnectionsRequest, opts ...grpc.CallOption) (*ListLogProviderConnectionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListLogProviderConnectionsResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_ListLogProviderConnections_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *integrationServiceClient) CollectProviderLogs(ctx context.Context, in *CollectProviderLogsRequest, opts ...grpc.CallOption) (*CollectProviderLogsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CollectProviderLogsResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_CollectProviderLogs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // IntegrationServiceServer is the server API for IntegrationService service.
 // All implementations should embed UnimplementedIntegrationServiceServer
 // for forward compatibility
 type IntegrationServiceServer interface {
 	GetGitHubConfig(context.Context, *GetGitHubConfigRequest) (*GetGitHubConfigResponse, error)
+	CreateGitHubInstallSession(context.Context, *CreateGitHubInstallSessionRequest) (*CreateGitHubInstallSessionResponse, error)
+	CompleteGitHubInstallSession(context.Context, *CompleteGitHubInstallSessionRequest) (*CompleteGitHubInstallSessionResponse, error)
 	HandleGitHubCallback(context.Context, *HandleGitHubCallbackRequest) (*HandleGitHubCallbackResponse, error)
 	ListInstallations(context.Context, *ListInstallationsRequest) (*ListInstallationsResponse, error)
 	ListRepositories(context.Context, *ListRepositoriesRequest) (*ListRepositoriesResponse, error)
 	AttachRepository(context.Context, *AttachRepositoryRequest) (*AttachRepositoryResponse, error)
 	GetRepositoryConnection(context.Context, *GetRepositoryConnectionRequest) (*GetRepositoryConnectionResponse, error)
 	HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error)
+	DecideFixApproval(context.Context, *DecideFixApprovalRequest) (*DecideFixApprovalResponse, error)
+	UpsertLogProviderConnection(context.Context, *UpsertLogProviderConnectionRequest) (*UpsertLogProviderConnectionResponse, error)
+	ListLogProviderConnections(context.Context, *ListLogProviderConnectionsRequest) (*ListLogProviderConnectionsResponse, error)
+	CollectProviderLogs(context.Context, *CollectProviderLogsRequest) (*CollectProviderLogsResponse, error)
 }
 
 // UnimplementedIntegrationServiceServer should be embedded to have forward compatible implementations.
@@ -138,6 +216,12 @@ type UnimplementedIntegrationServiceServer struct {
 
 func (UnimplementedIntegrationServiceServer) GetGitHubConfig(context.Context, *GetGitHubConfigRequest) (*GetGitHubConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetGitHubConfig not implemented")
+}
+func (UnimplementedIntegrationServiceServer) CreateGitHubInstallSession(context.Context, *CreateGitHubInstallSessionRequest) (*CreateGitHubInstallSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateGitHubInstallSession not implemented")
+}
+func (UnimplementedIntegrationServiceServer) CompleteGitHubInstallSession(context.Context, *CompleteGitHubInstallSessionRequest) (*CompleteGitHubInstallSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteGitHubInstallSession not implemented")
 }
 func (UnimplementedIntegrationServiceServer) HandleGitHubCallback(context.Context, *HandleGitHubCallbackRequest) (*HandleGitHubCallbackResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HandleGitHubCallback not implemented")
@@ -156,6 +240,18 @@ func (UnimplementedIntegrationServiceServer) GetRepositoryConnection(context.Con
 }
 func (UnimplementedIntegrationServiceServer) HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HandleGitHubWebhook not implemented")
+}
+func (UnimplementedIntegrationServiceServer) DecideFixApproval(context.Context, *DecideFixApprovalRequest) (*DecideFixApprovalResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DecideFixApproval not implemented")
+}
+func (UnimplementedIntegrationServiceServer) UpsertLogProviderConnection(context.Context, *UpsertLogProviderConnectionRequest) (*UpsertLogProviderConnectionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpsertLogProviderConnection not implemented")
+}
+func (UnimplementedIntegrationServiceServer) ListLogProviderConnections(context.Context, *ListLogProviderConnectionsRequest) (*ListLogProviderConnectionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListLogProviderConnections not implemented")
+}
+func (UnimplementedIntegrationServiceServer) CollectProviderLogs(context.Context, *CollectProviderLogsRequest) (*CollectProviderLogsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CollectProviderLogs not implemented")
 }
 
 // UnsafeIntegrationServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -183,6 +279,42 @@ func _IntegrationService_GetGitHubConfig_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(IntegrationServiceServer).GetGitHubConfig(ctx, req.(*GetGitHubConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_CreateGitHubInstallSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGitHubInstallSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).CreateGitHubInstallSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_CreateGitHubInstallSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).CreateGitHubInstallSession(ctx, req.(*CreateGitHubInstallSessionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_CompleteGitHubInstallSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteGitHubInstallSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).CompleteGitHubInstallSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_CompleteGitHubInstallSession_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).CompleteGitHubInstallSession(ctx, req.(*CompleteGitHubInstallSessionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -295,6 +427,78 @@ func _IntegrationService_HandleGitHubWebhook_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IntegrationService_DecideFixApproval_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecideFixApprovalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).DecideFixApproval(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_DecideFixApproval_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).DecideFixApproval(ctx, req.(*DecideFixApprovalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_UpsertLogProviderConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpsertLogProviderConnectionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).UpsertLogProviderConnection(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_UpsertLogProviderConnection_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).UpsertLogProviderConnection(ctx, req.(*UpsertLogProviderConnectionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_ListLogProviderConnections_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListLogProviderConnectionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).ListLogProviderConnections(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_ListLogProviderConnections_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).ListLogProviderConnections(ctx, req.(*ListLogProviderConnectionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _IntegrationService_CollectProviderLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CollectProviderLogsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).CollectProviderLogs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_CollectProviderLogs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).CollectProviderLogs(ctx, req.(*CollectProviderLogsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // IntegrationService_ServiceDesc is the grpc.ServiceDesc for IntegrationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -305,6 +509,14 @@ var IntegrationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetGitHubConfig",
 			Handler:    _IntegrationService_GetGitHubConfig_Handler,
+		},
+		{
+			MethodName: "CreateGitHubInstallSession",
+			Handler:    _IntegrationService_CreateGitHubInstallSession_Handler,
+		},
+		{
+			MethodName: "CompleteGitHubInstallSession",
+			Handler:    _IntegrationService_CompleteGitHubInstallSession_Handler,
 		},
 		{
 			MethodName: "HandleGitHubCallback",
@@ -329,6 +541,22 @@ var IntegrationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "HandleGitHubWebhook",
 			Handler:    _IntegrationService_HandleGitHubWebhook_Handler,
+		},
+		{
+			MethodName: "DecideFixApproval",
+			Handler:    _IntegrationService_DecideFixApproval_Handler,
+		},
+		{
+			MethodName: "UpsertLogProviderConnection",
+			Handler:    _IntegrationService_UpsertLogProviderConnection_Handler,
+		},
+		{
+			MethodName: "ListLogProviderConnections",
+			Handler:    _IntegrationService_ListLogProviderConnections_Handler,
+		},
+		{
+			MethodName: "CollectProviderLogs",
+			Handler:    _IntegrationService_CollectProviderLogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

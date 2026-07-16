@@ -1,140 +1,61 @@
-# Local GitHub Milestone Checklist
+# Local end-to-end acceptance checklist
 
-Use this checklist for the next milestone:
+Use a disposable GitHub repository and non-production Vercel/Railway deployment.
 
-```text
-GitHub-connected project -> repository ingestion -> source-cited project Q&A
-```
-
-## [x] 1. Environment
-
-Create a local `.env` from the example:
+## Automated gates
 
 ```bash
-cp .env.example .env
+make test
+(cd frontend && npm run lint && npm run build)
+buf lint
+buf generate
+git diff --exit-code -- proto gen/go
+
+CLERK_SECRET_KEY=test-only \
+AI_WORKER_INTERNAL_TOKEN=test-only \
+SANDBOX_RUNNER_INTERNAL_TOKEN=test-only \
+docker compose config --quiet
 ```
 
-Fill the required values:
+CI additionally applies every migration to PostgreSQL/pgvector and builds every image.
 
-- `CLERK_SECRET_KEY`
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-- `CREDENTIAL_ENCRYPTION_KEY`
-- `GITHUB_APP_ID`
-- `GITHUB_APP_SLUG`
-- `GITHUB_APP_PRIVATE_KEY_PATH` or `GITHUB_APP_PRIVATE_KEY_BASE64`
-- `GITHUB_APP_WEBHOOK_SECRET`
-- `GITHUB_APP_INSTALL_URL`
-- `NEXT_PUBLIC_GITHUB_APP_INSTALL_URL`
+## Live environment
 
-Generate the encryption key:
+- [ ] Docker daemon is running; sandbox `/health` reports `docker_ready: true`.
+- [ ] All Compose services become healthy and AI `/ready` reports ready.
+- [ ] Migrations 001–007 apply with `ON_ERROR_STOP=1`.
+- [ ] Frontend sign-in creates/synchronizes the user and workspace.
+- [ ] Gateway rejects invalid JWTs, origins, oversized bodies, and rate overflow.
 
-```bash
-openssl rand -base64 32
-```
+## GitHub and ingestion
 
-## [x] 2. GitHub App
+- [ ] Owner/admin creates install session; state is opaque, expires, and is single-use.
+- [ ] Callback/replay/tamper tests behave as documented.
+- [ ] Selected repo is listed and attached; browser-supplied metadata cannot spoof another repo.
+- [ ] Ingestion transitions queued → running → succeeded at an exact SHA.
+- [ ] `.env`, keys, binaries, dependencies, build outputs, and large files are excluded/redacted.
+- [ ] Project Q&A cites real file/line ranges; weak evidence returns insufficient context.
 
-Create the GitHub App using [github-app-setup.md](./github-app-setup.md).
+## Incident and FIX PR
 
-For local development:
+- [ ] Vercel and/or Railway provider token saves encrypted and is absent from all responses/logs.
+- [ ] Runtime/build collection returns analysis but no raw provider logs to browser.
+- [ ] Secret canaries in logs are redacted before persistence/model input.
+- [ ] Incident history survives restart and shows ordered steps/evidence.
+- [ ] Fix proposal is based on indexed SHA and contains exact diff/file reasons/verification.
+- [ ] Forbidden paths, secret values, oversized changes, missing files, and no-test repos fail closed.
+- [ ] Baseline and patched test runs are isolated; patched failure/timeout blocks proposal.
+- [ ] Viewer/developer cannot approve; owner/admin can reject with zero GitHub writes.
+- [ ] Expired/replayed approval cannot publish.
+- [ ] Changing base SHA/file after review prevents publication.
+- [ ] Valid approval creates a new `opspilot/fix-*` branch and draft PR only.
+- [ ] Default branch SHA is unchanged and PR cannot be merged by OpsPilot.
 
-- use path-based private key loading if possible;
-- store the key under `secrets/`;
-- keep `secrets/` and `.env` uncommitted;
-- use a tunnel URL only when testing live webhooks from GitHub.
+## Lifecycle and operations
 
-## [x] 3. Infrastructure
-
-Start Docker Desktop, then run:
-
-```bash
-make up
-make migrate
-make health
-```
-
-Current known local caveat: if Docker Desktop is not running, `make migrate` cannot connect to the Docker daemon or fallback Postgres.
-
-## [x] 4. Backend Contract
-
-Implement the routes defined in [github-integration-api-contract.md](./github-integration-api-contract.md).
-
-The implementation must:
-
-- keep GitHub installation tokens short-lived and unpersisted;
-- verify GitHub webhook signatures;
-- store installation and repository metadata in the new migration tables;
-- create `ingestion_jobs` when a repo is attached;
-- avoid cloning/indexing inside the HTTP request path.
-
-## [x] 5. Frontend Contract
-
-Replace the current project creation card's "Connect Repository" placeholder with:
-
-1. Connect GitHub button.
-2. Installation/account selector.
-3. Repository selector.
-4. Attach-to-project action.
-5. Repository status panel showing:
-   - full repo name,
-   - selected branch,
-   - connection status,
-   - latest ingestion job status,
-   - last indexed commit when available.
-
-## [x] 6. Verification
-
-Minimum checks for this milestone slice:
-
-```bash
-GOCACHE=/private/tmp/opspilot-gocache make test
-docker compose config
-make migrate
-```
-
-After endpoints exist:
-
-- install GitHub App on a test repository;
-- confirm installation is stored in `github_installations`;
-- list repositories through the API;
-- attach one repo to a project;
-- confirm `repository_connections` row exists;
-- confirm `ingestion_jobs` row is queued;
-- confirm project UI shows connected repo state.
-
-Verified locally:
-
-```text
-repository_connections.status = connected
-repository_connections.full_name = pranav8764/ParkIntel
-repository_connections.selected_branch = main
-
-ingestion_jobs.status = queued
-ingestion_jobs.source_branch = main
-```
-
-The GitHub connection slice is complete through queued ingestion job creation.
-
-## [ ] 7. Repository Ingestion Worker
-
-Next milestone:
-
-```text
-queued ingestion job -> fetch repository contents -> index chunks -> source-cited Q&A
-```
-
-The worker should:
-
-1. Poll or subscribe for `ingestion_jobs` with `status = 'queued'`.
-2. Load the linked `repository_connections` and `github_installations` records.
-3. Generate a short-lived GitHub installation token.
-4. Fetch repository files for the selected branch.
-5. Store indexed file/chunk metadata.
-6. Mark the job `succeeded` or `failed`.
-7. Update project indexing status for the UI.
-
-## Service Boundary
-
-GitHub integration lives in the dedicated Integration Service.
-
-The API Gateway should expose frontend-facing HTTP routes and call Integration Service over gRPC.
+- [ ] Retention can be changed 1–365 by owner/admin and not by developer/viewer.
+- [ ] Expired log rows are removed; incident summary/audit remains.
+- [ ] Typed project deletion cascades project data and leaves sanitized audit metadata.
+- [ ] `/metrics` contains method/status only, never token/workspace/project/log text.
+- [ ] Request ID correlates gateway and AI JSON logs.
+- [ ] Backup/restore drill succeeds in an isolated database.

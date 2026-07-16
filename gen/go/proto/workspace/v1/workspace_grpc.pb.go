@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion8
 
 const (
-	WorkspaceService_CreateWorkspace_FullMethodName = "/opspilot.workspace.v1.WorkspaceService/CreateWorkspace"
-	WorkspaceService_GetWorkspaces_FullMethodName   = "/opspilot.workspace.v1.WorkspaceService/GetWorkspaces"
-	WorkspaceService_GetWorkspace_FullMethodName    = "/opspilot.workspace.v1.WorkspaceService/GetWorkspace"
-	WorkspaceService_DeleteWorkspace_FullMethodName = "/opspilot.workspace.v1.WorkspaceService/DeleteWorkspace"
+	WorkspaceService_CreateWorkspace_FullMethodName         = "/opspilot.workspace.v1.WorkspaceService/CreateWorkspace"
+	WorkspaceService_GetWorkspaces_FullMethodName           = "/opspilot.workspace.v1.WorkspaceService/GetWorkspaces"
+	WorkspaceService_GetWorkspace_FullMethodName            = "/opspilot.workspace.v1.WorkspaceService/GetWorkspace"
+	WorkspaceService_DeleteWorkspace_FullMethodName         = "/opspilot.workspace.v1.WorkspaceService/DeleteWorkspace"
+	WorkspaceService_UpdateWorkspaceSettings_FullMethodName = "/opspilot.workspace.v1.WorkspaceService/UpdateWorkspaceSettings"
 )
 
 // WorkspaceServiceClient is the client API for WorkspaceService service.
@@ -33,6 +34,7 @@ type WorkspaceServiceClient interface {
 	GetWorkspaces(ctx context.Context, in *GetWorkspacesRequest, opts ...grpc.CallOption) (*GetWorkspacesResponse, error)
 	GetWorkspace(ctx context.Context, in *GetWorkspaceRequest, opts ...grpc.CallOption) (*GetWorkspaceResponse, error)
 	DeleteWorkspace(ctx context.Context, in *DeleteWorkspaceRequest, opts ...grpc.CallOption) (*DeleteWorkspaceResponse, error)
+	UpdateWorkspaceSettings(ctx context.Context, in *UpdateWorkspaceSettingsRequest, opts ...grpc.CallOption) (*UpdateWorkspaceSettingsResponse, error)
 }
 
 type workspaceServiceClient struct {
@@ -83,6 +85,16 @@ func (c *workspaceServiceClient) DeleteWorkspace(ctx context.Context, in *Delete
 	return out, nil
 }
 
+func (c *workspaceServiceClient) UpdateWorkspaceSettings(ctx context.Context, in *UpdateWorkspaceSettingsRequest, opts ...grpc.CallOption) (*UpdateWorkspaceSettingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateWorkspaceSettingsResponse)
+	err := c.cc.Invoke(ctx, WorkspaceService_UpdateWorkspaceSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WorkspaceServiceServer is the server API for WorkspaceService service.
 // All implementations should embed UnimplementedWorkspaceServiceServer
 // for forward compatibility
@@ -91,6 +103,7 @@ type WorkspaceServiceServer interface {
 	GetWorkspaces(context.Context, *GetWorkspacesRequest) (*GetWorkspacesResponse, error)
 	GetWorkspace(context.Context, *GetWorkspaceRequest) (*GetWorkspaceResponse, error)
 	DeleteWorkspace(context.Context, *DeleteWorkspaceRequest) (*DeleteWorkspaceResponse, error)
+	UpdateWorkspaceSettings(context.Context, *UpdateWorkspaceSettingsRequest) (*UpdateWorkspaceSettingsResponse, error)
 }
 
 // UnimplementedWorkspaceServiceServer should be embedded to have forward compatible implementations.
@@ -108,6 +121,9 @@ func (UnimplementedWorkspaceServiceServer) GetWorkspace(context.Context, *GetWor
 }
 func (UnimplementedWorkspaceServiceServer) DeleteWorkspace(context.Context, *DeleteWorkspaceRequest) (*DeleteWorkspaceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteWorkspace not implemented")
+}
+func (UnimplementedWorkspaceServiceServer) UpdateWorkspaceSettings(context.Context, *UpdateWorkspaceSettingsRequest) (*UpdateWorkspaceSettingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateWorkspaceSettings not implemented")
 }
 
 // UnsafeWorkspaceServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -193,6 +209,24 @@ func _WorkspaceService_DeleteWorkspace_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkspaceService_UpdateWorkspaceSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateWorkspaceSettingsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkspaceServiceServer).UpdateWorkspaceSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkspaceService_UpdateWorkspaceSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkspaceServiceServer).UpdateWorkspaceSettings(ctx, req.(*UpdateWorkspaceSettingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkspaceService_ServiceDesc is the grpc.ServiceDesc for WorkspaceService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -215,6 +249,10 @@ var WorkspaceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteWorkspace",
 			Handler:    _WorkspaceService_DeleteWorkspace_Handler,
+		},
+		{
+			MethodName: "UpdateWorkspaceSettings",
+			Handler:    _WorkspaceService_UpdateWorkspaceSettings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,13 +21,18 @@ import (
 
 type IntegrationServer struct {
 	integrationv1.UnimplementedIntegrationServiceServer
-	db     *pgxpool.Pool
-	cfg    *config.Config
-	logger *slog.Logger
+	db        *pgxpool.Pool
+	cfg       *config.Config
+	logger    *slog.Logger
+	publisher EventPublisher
 }
 
-func New(db *pgxpool.Pool, cfg *config.Config, logger *slog.Logger) *IntegrationServer {
-	return &IntegrationServer{db: db, cfg: cfg, logger: logger}
+type EventPublisher interface {
+	Publish(ctx context.Context, subject string, payload []byte) error
+}
+
+func New(db *pgxpool.Pool, cfg *config.Config, logger *slog.Logger, publisher EventPublisher) *IntegrationServer {
+	return &IntegrationServer{db: db, cfg: cfg, logger: logger, publisher: publisher}
 }
 
 func (s *IntegrationServer) GetGitHubConfig(ctx context.Context, req *integrationv1.GetGitHubConfigRequest) (*integrationv1.GetGitHubConfigResponse, error) {
@@ -46,6 +52,9 @@ func (s *IntegrationServer) HandleGitHubCallback(ctx context.Context, req *integ
 	if req.UserId == "" || req.WorkspaceId == "" || req.InstallationId == 0 {
 		return nil, status.Error(codes.InvalidArgument, "user_id, workspace_id, and installation_id are required")
 	}
+	if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin"); err != nil {
+		return nil, err
+	}
 
 	s.logger.Info("fetching installation metadata from github", "installation_id", req.InstallationId)
 	meta, err := s.fetchInstallationMetadata(req.InstallationId)
@@ -60,26 +69,42 @@ func (s *IntegrationServer) HandleGitHubCallback(ctx context.Context, req *integ
 	}
 	defer tx.Rollback(ctx)
 
-	var userUUID *string
-	if req.UserId != "" {
-		userUUID = &req.UserId
+	installation, err := s.persistGitHubInstallation(ctx, tx, req.WorkspaceId, req.UserId, req.InstallationId, meta)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Error(codes.Internal, "failed to commit transaction")
 	}
 
-	// 1. Upsert integrations
+	return &integrationv1.HandleGitHubCallbackResponse{Installation: installation}, nil
+}
+
+func (s *IntegrationServer) persistGitHubInstallation(
+	ctx context.Context,
+	tx pgx.Tx,
+	workspaceID string,
+	userID string,
+	installationID int64,
+	meta *githubInstallationMeta,
+) (*integrationv1.GitHubInstallation, error) {
 	var integrationID string
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO integrations (workspace_id, provider, auth_type, status, external_account_id, external_account_name, created_by)
 		VALUES ($1, 'github', 'github_app', 'active', $2, $3, $4)
 		ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
 			SET status = 'active', external_account_name = EXCLUDED.external_account_name, updated_at = NOW()
 		RETURNING id
-	`, req.WorkspaceId, fmt.Sprintf("%d", meta.Account.ID), meta.Account.Login, userUUID).Scan(&integrationID)
+	`, workspaceID, fmt.Sprintf("%d", meta.Account.ID), meta.Account.Login, userID).Scan(&integrationID)
 	if err != nil {
 		s.logger.Error("upsert integration failed", "error", err)
 		return nil, status.Error(codes.Internal, "database error updating integrations")
 	}
 
-	// 2. Upsert github_installations
+	permissions, err := json.Marshal(meta.Permissions)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to encode GitHub permissions")
+	}
 	var (
 		instID          string
 		accountLogin    string
@@ -89,12 +114,18 @@ func (s *IntegrationServer) HandleGitHubCallback(ctx context.Context, req *integ
 		installedAtTime *time.Time
 	)
 	err = tx.QueryRow(ctx, `
-		INSERT INTO github_installations (workspace_id, integration_id, installation_id, account_id, account_login, account_type, repository_selection, status, installed_by, installed_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, NOW())
+		INSERT INTO github_installations (
+			workspace_id, integration_id, installation_id, account_id, account_login,
+			account_type, repository_selection, permissions, status, installed_by, installed_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, NOW())
 		ON CONFLICT (installation_id) DO UPDATE
-			SET status = 'active', repository_selection = EXCLUDED.repository_selection, updated_at = NOW()
-		RETURNING id, account_login, COALESCE(account_type, ''), COALESCE(repository_selection, ''), status, installed_at
-	`, req.WorkspaceId, integrationID, req.InstallationId, meta.Account.ID, meta.Account.Login, meta.Account.Type, meta.RepositorySelection, userUUID).Scan(
+			SET status = 'active', repository_selection = EXCLUDED.repository_selection,
+				permissions = EXCLUDED.permissions, updated_at = NOW()
+		RETURNING id, account_login, COALESCE(account_type, ''),
+			COALESCE(repository_selection, ''), status, installed_at
+	`, workspaceID, integrationID, installationID, meta.Account.ID, meta.Account.Login,
+		meta.Account.Type, meta.RepositorySelection, permissions, userID).Scan(
 		&instID, &accountLogin, &accountType, &repoSelection, &statusStr, &installedAtTime,
 	)
 	if err != nil {
@@ -102,37 +133,36 @@ func (s *IntegrationServer) HandleGitHubCallback(ctx context.Context, req *integ
 		return nil, status.Error(codes.Internal, "database error updating github_installations")
 	}
 
-	// 3. Write to audit logs
-	_, _ = tx.Exec(ctx, `
-		INSERT INTO audit_logs (workspace_id, user_id, action, resource_type, resource_id)
-		VALUES ($1, $2, 'github.installation.connected', 'github_installation', $3)
-	`, req.WorkspaceId, userUUID, instID)
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, status.Error(codes.Internal, "failed to commit transaction")
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO audit_logs (workspace_id, user_id, action, resource_type, resource_id, metadata)
+		VALUES ($1, $2, 'github.installation.connected', 'github_installation', $3,
+			jsonb_build_object('installation_id', $4::bigint))
+	`, workspaceID, userID, instID, installationID); err != nil {
+		s.logger.Error("audit github installation failed", "error", err, "installation_id", installationID)
+		return nil, status.Error(codes.Internal, "failed to write installation audit record")
 	}
 
-	installedAtStr := ""
+	installedAt := ""
 	if installedAtTime != nil {
-		installedAtStr = installedAtTime.Format(time.RFC3339)
+		installedAt = installedAtTime.Format(time.RFC3339)
 	}
-
-	return &integrationv1.HandleGitHubCallbackResponse{
-		Installation: &integrationv1.GitHubInstallation{
-			Id:                  instID,
-			InstallationId:      req.InstallationId,
-			AccountLogin:        accountLogin,
-			AccountType:         accountType,
-			RepositorySelection: repoSelection,
-			Status:              statusStr,
-			InstalledAt:         installedAtStr,
-		},
+	return &integrationv1.GitHubInstallation{
+		Id:                  instID,
+		InstallationId:      installationID,
+		AccountLogin:        accountLogin,
+		AccountType:         accountType,
+		RepositorySelection: repoSelection,
+		Status:              statusStr,
+		InstalledAt:         installedAt,
 	}, nil
 }
 
 func (s *IntegrationServer) ListInstallations(ctx context.Context, req *integrationv1.ListInstallationsRequest) (*integrationv1.ListInstallationsResponse, error) {
-	if req.WorkspaceId == "" {
-		return nil, status.Error(codes.InvalidArgument, "workspace_id is required")
+	if req.WorkspaceId == "" || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "workspace_id and user_id are required")
+	}
+	if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin", "developer", "viewer"); err != nil {
+		return nil, err
 	}
 
 	rows, err := s.db.Query(ctx, `
@@ -165,8 +195,11 @@ func (s *IntegrationServer) ListInstallations(ctx context.Context, req *integrat
 }
 
 func (s *IntegrationServer) ListRepositories(ctx context.Context, req *integrationv1.ListRepositoriesRequest) (*integrationv1.ListRepositoriesResponse, error) {
-	if req.WorkspaceId == "" || req.GithubInstallationId == "" {
-		return nil, status.Error(codes.InvalidArgument, "workspace_id and github_installation_id are required")
+	if req.WorkspaceId == "" || req.GithubInstallationId == "" || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "workspace_id, github_installation_id, and user_id are required")
+	}
+	if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin", "developer", "viewer"); err != nil {
+		return nil, err
 	}
 
 	var installationID int64
@@ -212,8 +245,11 @@ func (s *IntegrationServer) ListRepositories(ctx context.Context, req *integrati
 }
 
 func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrationv1.AttachRepositoryRequest) (*integrationv1.AttachRepositoryResponse, error) {
-	if req.WorkspaceId == "" || req.ProjectId == "" || req.GithubInstallationId == "" || req.RepositoryId == 0 {
-		return nil, status.Error(codes.InvalidArgument, "workspace_id, project_id, github_installation_id, and repository_id are required")
+	if req.WorkspaceId == "" || req.ProjectId == "" || req.GithubInstallationId == "" || req.RepositoryId == 0 || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id, workspace_id, project_id, github_installation_id, and repository_id are required")
+	}
+	if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin"); err != nil {
+		return nil, err
 	}
 
 	// Verify project exists in workspace
@@ -228,6 +264,51 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 		return nil, status.Error(codes.Internal, "failed to check project existence")
 	}
 
+	// Resolve the installation inside the same workspace, then use GitHub as the
+	// authority for repository metadata. Browser-supplied owner/name/URLs are
+	// deliberately ignored because they are untrusted input.
+	var integrationID string
+	var installationID int64
+	err = s.db.QueryRow(ctx, `
+		SELECT COALESCE(integration_id::text, ''), installation_id
+		FROM github_installations
+		WHERE id = $1 AND workspace_id = $2 AND status = 'active'
+	`, req.GithubInstallationId, req.WorkspaceId).Scan(&integrationID, &installationID)
+	if err == pgx.ErrNoRows {
+		return nil, status.Error(codes.NotFound, "active github installation not found in workspace")
+	}
+	if err != nil || integrationID == "" {
+		return nil, status.Error(codes.Internal, "failed to resolve installation details")
+	}
+
+	token, err := s.getInstallationToken(installationID)
+	if err != nil {
+		s.logger.Error("failed to authorize repository attachment", "error", err, "installation_id", installationID)
+		return nil, status.Error(codes.Unavailable, "failed to authorize with github")
+	}
+	repositories, err := s.fetchInstallationRepositories(token)
+	if err != nil {
+		s.logger.Error("failed to validate repository attachment", "error", err)
+		return nil, status.Error(codes.Unavailable, "failed to validate repository with github")
+	}
+	var repository *githubRepoMeta
+	for i := range repositories {
+		if repositories[i].ID == req.RepositoryId {
+			repository = &repositories[i]
+			break
+		}
+	}
+	if repository == nil {
+		return nil, status.Error(codes.PermissionDenied, "repository is not accessible to this github installation")
+	}
+	selectedBranch := strings.TrimSpace(req.SelectedBranch)
+	if selectedBranch == "" {
+		selectedBranch = repository.DefaultBranch
+	}
+	if !validGitBranch(selectedBranch) {
+		return nil, status.Error(codes.InvalidArgument, "selected_branch is not a valid git branch name")
+	}
+
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to start database transaction")
@@ -237,16 +318,6 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 	var userUUID *string
 	if req.UserId != "" {
 		userUUID = &req.UserId
-	}
-
-	// Fetch integration_id from installation
-	var integrationID string
-	err = tx.QueryRow(ctx, `
-		SELECT integration_id FROM github_installations WHERE id = $1
-	`, req.GithubInstallationId).Scan(&integrationID)
-	if err != nil {
-		s.logger.Error("fetch integration_id failed", "error", err)
-		return nil, status.Error(codes.Internal, "failed to resolve installation details")
 	}
 
 	// 1. Upsert repository_connections
@@ -275,7 +346,7 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 				status = 'connected',
 				updated_at = NOW()
 		RETURNING id, full_name, COALESCE(html_url, ''), selected_branch, status
-	`, req.WorkspaceId, req.ProjectId, integrationID, req.GithubInstallationId, req.RepositoryId, req.Owner, req.Name, req.FullName, req.HtmlUrl, req.CloneUrl, req.DefaultBranch, req.SelectedBranch, req.Private, userUUID).Scan(
+	`, req.WorkspaceId, req.ProjectId, integrationID, req.GithubInstallationId, repository.ID, repository.Owner.Login, repository.Name, repository.FullName, repository.HTMLURL, repository.CloneURL, repository.DefaultBranch, selectedBranch, repository.Private, userUUID).Scan(
 		&connID, &connFullName, &connHTMLURL, &connSelectedBranch, &connStatus,
 	)
 	if err != nil {
@@ -288,7 +359,7 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 		UPDATE projects
 		SET repo_url = $1, repo_provider = 'github', default_branch = $2, indexing_status = 'queued', updated_at = NOW()
 		WHERE id = $3
-	`, req.HtmlUrl, req.DefaultBranch, req.ProjectId)
+	`, repository.HTMLURL, repository.DefaultBranch, req.ProjectId)
 	if err != nil {
 		s.logger.Error("update project metadata failed", "error", err)
 		return nil, status.Error(codes.Internal, "database error updating project metadata")
@@ -304,7 +375,7 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 		INSERT INTO ingestion_jobs (workspace_id, project_id, repository_connection_id, job_type, status, source_branch, attempt_count, max_attempts, created_by)
 		VALUES ($1, $2, $3, 'repo_index', 'queued', $4, 0, 3, $5)
 		RETURNING id, status, COALESCE(source_branch, '')
-	`, req.WorkspaceId, req.ProjectId, connID, req.SelectedBranch, userUUID).Scan(
+	`, req.WorkspaceId, req.ProjectId, connID, selectedBranch, userUUID).Scan(
 		&jobID, &jobStatus, &jobSrcBranch,
 	)
 	if err != nil {
@@ -313,13 +384,29 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 	}
 
 	// 4. Audit log entry
-	_, _ = tx.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs (workspace_id, user_id, action, resource_type, resource_id)
 		VALUES ($1, $2, 'project.repository.connected', 'repository_connection', $3)
-	`, req.WorkspaceId, userUUID, connID)
+	`, req.WorkspaceId, userUUID, connID); err != nil {
+		s.logger.Error("audit repository connection failed", "error", err, "project_id", req.ProjectId)
+		return nil, status.Error(codes.Internal, "failed to audit repository connection")
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, status.Error(codes.Internal, "failed to commit transaction")
+	}
+
+	if s.publisher != nil {
+		payload, marshalErr := json.Marshal(map[string]string{
+			"job_id": jobID, "workspace_id": req.WorkspaceId, "project_id": req.ProjectId,
+		})
+		if marshalErr == nil {
+			publishCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			if publishErr := s.publisher.Publish(publishCtx, "repo.ingestion.requested", payload); publishErr != nil {
+				s.logger.Warn("ingestion event publish failed; durable database recovery will retry", "error", publishErr, "job_id", jobID)
+			}
+		}
 	}
 
 	return &integrationv1.AttachRepositoryResponse{
@@ -343,8 +430,11 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 }
 
 func (s *IntegrationServer) GetRepositoryConnection(ctx context.Context, req *integrationv1.GetRepositoryConnectionRequest) (*integrationv1.GetRepositoryConnectionResponse, error) {
-	if req.WorkspaceId == "" || req.ProjectId == "" {
-		return nil, status.Error(codes.InvalidArgument, "workspace_id and project_id are required")
+	if req.WorkspaceId == "" || req.ProjectId == "" || req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id, workspace_id and project_id are required")
+	}
+	if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin", "developer", "viewer"); err != nil {
+		return nil, err
 	}
 
 	var conn integrationv1.RepositoryConnection
@@ -409,7 +499,7 @@ func (s *IntegrationServer) GetRepositoryConnection(ctx context.Context, req *in
 }
 
 func (s *IntegrationServer) HandleGitHubWebhook(ctx context.Context, req *integrationv1.HandleGitHubWebhookRequest) (*integrationv1.HandleGitHubWebhookResponse, error) {
-	s.logger.Info("github webhook received", "event_type", req.EventType, "signature", req.Signature)
+	s.logger.Info("github webhook received", "event_type", req.EventType)
 
 	verified := verifySignature(req.Payload, req.Signature, s.cfg.GitHubAppWebhookSecret)
 	if !verified {
@@ -422,19 +512,23 @@ func (s *IntegrationServer) HandleGitHubWebhook(ctx context.Context, req *integr
 	// - Treat webhook data as untrusted input.
 	// - Do not trigger risky actions from webhooks.
 	// - Log successfully.
-	
+
 	// Create audit log event
-	_, _ = s.db.Exec(ctx, `
+	metadata, _ := json.Marshal(map[string]string{"event_type": req.EventType})
+	if _, err := s.db.Exec(ctx, `
 		INSERT INTO audit_logs (action, resource_type, metadata)
-		VALUES ('github.webhook.received', 'webhook', $1)
-	`, []byte(fmt.Sprintf(`{"event_type": %q}`, req.EventType)))
+		VALUES ('github.webhook.received', 'webhook', $1::jsonb)
+	`, string(metadata)); err != nil {
+		s.logger.Error("audit github webhook failed", "error", err, "event_type", req.EventType)
+		return nil, status.Error(codes.Internal, "failed to audit webhook")
+	}
 
 	return &integrationv1.HandleGitHubWebhookResponse{Success: true}, nil
 }
 
 func verifySignature(payload []byte, signatureHeader string, secret string) bool {
 	if secret == "" {
-		return true // skip verification if no secret is configured
+		return false
 	}
 	if !strings.HasPrefix(signatureHeader, "sha256=") {
 		return false
@@ -452,3 +546,42 @@ func verifySignature(payload []byte, signatureHeader string, secret string) bool
 	return hmac.Equal(expectedSignature, actualSignature)
 }
 
+func validGitBranch(branch string) bool {
+	if branch == "" || len(branch) > 255 || branch == "@" || strings.HasPrefix(branch, ".") ||
+		strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, ".") || strings.HasSuffix(branch, "/") ||
+		strings.Contains(branch, "..") || strings.Contains(branch, "@{") || strings.Contains(branch, "//") ||
+		strings.ContainsAny(branch, " ~^:?*[\\") {
+		return false
+	}
+	for _, char := range branch {
+		if char < 0x20 || char == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *IntegrationServer) requireWorkspaceRole(
+	ctx context.Context,
+	workspaceID string,
+	userID string,
+	allowedRoles ...string,
+) error {
+	var role string
+	err := s.db.QueryRow(ctx, `
+		SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2
+	`, workspaceID, userID).Scan(&role)
+	if err == pgx.ErrNoRows {
+		return status.Error(codes.PermissionDenied, "workspace access denied")
+	}
+	if err != nil {
+		s.logger.Error("workspace membership check failed", "error", err, "workspace_id", workspaceID)
+		return status.Error(codes.Internal, "workspace membership check failed")
+	}
+	for _, allowedRole := range allowedRoles {
+		if role == allowedRole {
+			return nil
+		}
+	}
+	return status.Error(codes.PermissionDenied, "workspace role does not permit this action")
+}

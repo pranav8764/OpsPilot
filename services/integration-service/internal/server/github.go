@@ -11,9 +11,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+var githubHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var githubAPIBaseURL = "https://api.github.com"
+
 type githubInstallationMeta struct {
-	ID        int64 `json:"id"`
-	Account   struct {
+	ID      int64 `json:"id"`
+	Account struct {
 		Login string `json:"login"`
 		ID    int64  `json:"id"`
 		Type  string `json:"type"`
@@ -93,7 +96,7 @@ func (s *IntegrationServer) getInstallationToken(installationID int64) (string, 
 		return "", err
 	}
 
-	url := fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID)
+	url := fmt.Sprintf("%s/app/installations/%d/access_tokens", githubAPIBaseURL, installationID)
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return "", err
@@ -102,9 +105,9 @@ func (s *IntegrationServer) getInstallationToken(installationID int64) (string, 
 	req.Header.Set("Authorization", "Bearer "+appJWT)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "opspilot-integration-service")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("X-GitHub-Api-Version", s.cfg.GitHubAPIVersion)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -128,7 +131,7 @@ func (s *IntegrationServer) fetchInstallationMetadata(installationID int64) (*gi
 		return nil, err
 	}
 
-	url := fmt.Sprintf("https://api.github.com/app/installations/%d", installationID)
+	url := fmt.Sprintf("%s/app/installations/%d", githubAPIBaseURL, installationID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -137,9 +140,9 @@ func (s *IntegrationServer) fetchInstallationMetadata(installationID int64) (*gi
 	req.Header.Set("Authorization", "Bearer "+appJWT)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "opspilot-integration-service")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("X-GitHub-Api-Version", s.cfg.GitHubAPIVersion)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -158,31 +161,38 @@ func (s *IntegrationServer) fetchInstallationMetadata(installationID int64) (*gi
 }
 
 func (s *IntegrationServer) fetchInstallationRepositories(token string) ([]githubRepoMeta, error) {
-	url := "https://api.github.com/installation/repositories"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
+	var repositories []githubRepoMeta
+	for page := 1; page <= 100; page++ {
+		url := fmt.Sprintf("%s/installation/repositories?per_page=100&page=%d", githubAPIBaseURL, page)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "opspilot-integration-service")
+		req.Header.Set("X-GitHub-Api-Version", s.cfg.GitHubAPIVersion)
+
+		resp, err := githubHTTPClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("unexpected status code fetching repositories: %d", resp.StatusCode)
+		}
+
+		var res githubReposResponse
+		decodeErr := json.NewDecoder(resp.Body).Decode(&res)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		repositories = append(repositories, res.Repositories...)
+		if len(res.Repositories) < 100 || len(repositories) >= res.TotalCount {
+			return repositories, nil
+		}
 	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "opspilot-integration-service")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code fetching repositories: %d", resp.StatusCode)
-	}
-
-	var res githubReposResponse
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return nil, err
-	}
-
-	return res.Repositories, nil
+	return nil, fmt.Errorf("repository pagination exceeded safety limit")
 }

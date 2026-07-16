@@ -1,326 +1,90 @@
-# GitHub Integration API Contract
+# HTTP API contract
 
-This contract defines the first GitHub connection flow for OpsPilot. The backing implementation lives in the dedicated Integration Service, while the API Gateway exposes stable HTTP routes to the frontend.
+All `/api/v1` routes except GitHub callback/webhook require `Authorization: Bearer <Clerk JWT>`. JSON errors use `{ "error": "CODE", "message": "safe message" }`; upstream credentials, raw provider errors, and model internals are not exposed. `X-Request-ID` is returned on gateway requests.
 
-## Flow Summary
+## Workspaces and projects
 
-```text
-User clicks Connect GitHub
-  -> GitHub App installation page
-  -> GitHub redirects to callback with installation_id
-  -> OpsPilot records installation metadata
-  -> User lists accessible repositories
-  -> User attaches one repository to an OpsPilot project
-  -> OpsPilot creates an ingestion job
-```
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET/POST` | `/api/v1/workspaces` | List/create workspaces |
+| `GET` | `/api/v1/workspaces/{workspaceId}` | Workspace including role/plan/retention |
+| `PUT` | `/api/v1/workspaces/{workspaceId}/settings` | Owner/admin log retention, 1–365 days |
+| `GET` | `/api/v1/workspaces/{workspaceId}/usage` | Plan entitlements and atomic usage |
+| `GET/POST` | `/api/v1/workspaces/{workspaceId}/projects` | List/create projects |
+| `DELETE` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}` | Owner/admin permanent cascading deletion |
 
-## Auth
+## GitHub
 
-All UI-facing API routes require the existing Clerk bearer token unless explicitly marked as GitHub webhook routes.
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/integrations/github/config` | Frontend-safe configuration status/URLs |
+| `POST` | `/api/v1/workspaces/{workspaceId}/integrations/github/install-session` | Create one-time ten-minute opaque install state |
+| `GET` | `/api/v1/integrations/github/callback?installation_id=…&state=…` | Public one-time callback, then controlled redirect |
+| `POST` | `/api/v1/webhooks/github` | Public HMAC-verified webhook receiver |
+| `GET` | `/api/v1/workspaces/{workspaceId}/integrations/github/installations` | List active workspace installations |
+| `GET` | `/api/v1/workspaces/{workspaceId}/integrations/github/installations/{id}/repositories` | List repositories with short-lived installation token |
+| `GET/POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/repository` | Read/attach canonical server-validated repository and queue ingestion |
 
-```http
-Authorization: Bearer <clerk_jwt>
-```
+Repository attachment accepts selected IDs/branch from the UI as hints. The Integration Service refetches canonical GitHub metadata, verifies the installation/workspace/project, and stores trusted owner/name/URLs/branch.
 
-Webhook routes verify GitHub signatures with `GITHUB_APP_WEBHOOK_SECRET`.
+## Log providers and incidents
 
-## Endpoints
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `GET/POST` | `/api/v1/workspaces/{workspaceId}/integrations/log-providers` | List metadata/save encrypted Vercel or Railway credential |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/analyze` | Redact/analyze ≤1 MiB manual logs |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/collect` | Server-side bounded provider collection + analysis |
+| `GET` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents` | Durable incident/workflow/proposal/approval/PR history |
 
-### Get GitHub App Connection Config
+Provider-save responses return connection ID/provider/display metadata only. Tokens and encrypted envelopes are never returned.
 
-```http
-GET /api/v1/integrations/github/config
-```
-
-Returns frontend-safe GitHub App connection information.
-
-Response:
-
-```json
-{
-  "install_url": "https://github.com/apps/opspilot/installations/new",
-  "callback_url": "http://localhost:8080/api/v1/integrations/github/callback",
-  "configured": true
-}
-```
-
-Rules:
-
-- Do not return private keys, webhook secrets, installation tokens, or encryption keys.
-- `configured` is false if required server-side GitHub App values are missing.
-
-### GitHub App Install Callback
-
-```http
-GET /api/v1/integrations/github/callback?installation_id=123&setup_action=install
-```
-
-GitHub redirects users here after app installation.
-
-Behavior:
-
-1. Validate the authenticated user.
-2. Validate `installation_id`.
-3. Exchange GitHub App JWT for an installation token.
-4. Fetch installation/account metadata from GitHub.
-5. Upsert `integrations`.
-6. Upsert `github_installations`.
-7. Write an `audit_logs` record.
-8. Redirect user back to the dashboard or return JSON if called as an API.
-
-Response, JSON mode:
+Example collection request:
 
 ```json
 {
-  "installation": {
-    "id": "uuid",
-    "installation_id": 123,
-    "account_login": "octo-org",
-    "account_type": "Organization",
-    "repository_selection": "selected",
-    "status": "active"
-  }
+  "integration_id": "uuid",
+  "log_kind": "runtime",
+  "limit": 300
 }
 ```
 
-### List Workspace GitHub Installations
+## Repository intelligence and fix workflow
 
-```http
-GET /api/v1/workspaces/{workspaceId}/integrations/github/installations
-```
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/query` | Cited tenant-scoped Q&A, top-k 1–20 |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/incidents/{incidentId}/fix-proposal` | Pinned policy/sandbox-verified diff + pending approval |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/approvals/{approvalId}/decision` | Owner/admin approve or reject exact action |
 
-Response:
+Approval request:
 
 ```json
 {
-  "installations": [
-    {
-      "id": "uuid",
-      "installation_id": 123,
-      "account_login": "octo-org",
-      "account_type": "Organization",
-      "repository_selection": "selected",
-      "status": "active",
-      "installed_at": "2026-06-24T10:00:00Z"
-    }
-  ]
+  "decision": "approve",
+  "reason": "Reviewed exact diff and sandbox evidence"
 }
 ```
 
-Rules:
+Approval does not accept a replacement diff, branch, repository, or commit. Those come from the hashed stored proposal. A successful approval returns the draft PR URL/number/branch. Rejected, expired, replayed, stale, or hash-mismatched approvals produce no repository write.
 
-- User must be a member of the workspace.
-- Viewer can read installation status.
-- Only owner/admin should be allowed to disconnect integrations later.
+## Deployment readiness
 
-### List Repositories For Installation
+| Method | Route | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/deployment/readiness` | Deterministic pinned-source findings/score |
+| `POST` | `/api/v1/workspaces/{workspaceId}/projects/{projectId}/deployment/generate` | Dockerfile/Compose/env-name drafts; no write |
 
-```http
-GET /api/v1/workspaces/{workspaceId}/integrations/github/installations/{installationId}/repositories
-```
+## Limits
 
-Response:
+- Question: 4,000 characters; `top_k` ≤20.
+- Manual logs: 1 MiB.
+- Provider logs: maximum 300 normalized records per request.
+- Repository: 3,000 safe text files, 30 MiB total, 512 KiB/file.
+- Worker response: 5 MiB at gateway.
+- Approval lifetime: ten minutes for install state; configured expiry for fix actions.
+- Rate limit: 120 requests/minute by default per bearer fingerprint/IP.
+- Monthly plan limits and indexed storage are enforced atomically and surfaced by `/usage`.
 
-```json
-{
-  "repositories": [
-    {
-      "repository_id": 123456789,
-      "owner": "octo-org",
-      "name": "api",
-      "full_name": "octo-org/api",
-      "html_url": "https://github.com/octo-org/api",
-      "default_branch": "main",
-      "private": true,
-      "permissions": {
-        "contents": "read",
-        "pull_requests": "read"
-      }
-    }
-  ]
-}
-```
+## Internal APIs
 
-Rules:
-
-- Use a short-lived installation token.
-- Do not persist installation access tokens.
-- Cache repository metadata only after user attaches a repository to a project.
-
-### Attach Repository To Project
-
-```http
-POST /api/v1/workspaces/{workspaceId}/projects/{projectId}/repository
-Content-Type: application/json
-```
-
-Request:
-
-```json
-{
-  "github_installation_id": "uuid",
-  "repository_id": 123456789,
-  "owner": "octo-org",
-  "name": "api",
-  "full_name": "octo-org/api",
-  "html_url": "https://github.com/octo-org/api",
-  "clone_url": "https://github.com/octo-org/api.git",
-  "default_branch": "main",
-  "selected_branch": "main",
-  "private": true,
-  "permissions": {
-    "contents": "read",
-    "pull_requests": "read"
-  }
-}
-```
-
-Response:
-
-```json
-{
-  "repository_connection": {
-    "id": "uuid",
-    "project_id": "uuid",
-    "full_name": "octo-org/api",
-    "selected_branch": "main",
-    "status": "connected",
-    "last_indexed_commit_sha": null,
-    "last_indexed_at": null
-  },
-  "ingestion_job": {
-    "id": "uuid",
-    "status": "queued"
-  }
-}
-```
-
-Behavior:
-
-1. Validate workspace membership.
-2. Validate project belongs to workspace.
-3. Validate repository belongs to the installation.
-4. Upsert `repository_connections`.
-5. Update `projects.repo_url`, `projects.repo_provider`, `projects.default_branch`, and `projects.indexing_status`.
-6. Create an `ingestion_jobs` row with status `queued`.
-7. Publish `repo.connected` to NATS once NATS publishing is implemented.
-8. Write audit log events for repository connection and ingestion job creation.
-
-Rules:
-
-- One primary repository per project for MVP.
-- Do not clone or index in the request path.
-- Return quickly after queueing ingestion.
-
-### Get Project Repository Connection
-
-```http
-GET /api/v1/workspaces/{workspaceId}/projects/{projectId}/repository
-```
-
-Response:
-
-```json
-{
-  "repository_connection": {
-    "id": "uuid",
-    "full_name": "octo-org/api",
-    "html_url": "https://github.com/octo-org/api",
-    "selected_branch": "main",
-    "status": "connected",
-    "last_indexed_commit_sha": "abc123",
-    "last_indexed_at": "2026-06-24T10:15:00Z"
-  },
-  "latest_ingestion_job": {
-    "id": "uuid",
-    "status": "succeeded",
-    "source_commit_sha": "abc123",
-    "started_at": "2026-06-24T10:12:00Z",
-    "finished_at": "2026-06-24T10:15:00Z"
-  }
-}
-```
-
-### GitHub Webhook Receiver
-
-```http
-POST /api/v1/webhooks/github
-```
-
-Headers:
-
-```text
-X-GitHub-Event: installation
-X-Hub-Signature-256: sha256=...
-X-GitHub-Delivery: ...
-```
-
-Behavior:
-
-1. Verify `X-Hub-Signature-256`.
-2. Parse event type.
-3. Persist only trusted event metadata.
-4. Update installation/repository status where relevant.
-5. Queue re-indexing for selected branch pushes later.
-
-Initial events:
-
-- `installation`
-- `installation_repositories`
-- `push`
-- `pull_request`
-
-Rules:
-
-- Never execute instructions from webhook payload text.
-- Treat webhook data as untrusted input.
-- Do not trigger risky actions from webhooks in MVP.
-
-## Error Shape
-
-Use the existing API error style:
-
-```json
-{
-  "error": "GITHUB_APP_NOT_CONFIGURED",
-  "message": "GitHub App credentials are missing.",
-  "request_id": "req_123"
-}
-```
-
-Suggested error codes:
-
-- `GITHUB_APP_NOT_CONFIGURED`
-- `INVALID_INSTALLATION`
-- `INSTALLATION_ACCESS_DENIED`
-- `REPOSITORY_ACCESS_DENIED`
-- `PROJECT_NOT_FOUND`
-- `WORKSPACE_ACCESS_DENIED`
-- `INGESTION_QUEUE_FAILED`
-- `GITHUB_WEBHOOK_SIGNATURE_INVALID`
-
-## Audit Events
-
-Create audit log rows for:
-
-- `github.installation.connected`
-- `github.installation.updated`
-- `github.installation.revoked`
-- `project.repository.connected`
-- `ingestion.job.created`
-- `github.webhook.received`
-
-Metadata must not include tokens, private keys, raw webhook secrets, or secret values.
-
-## Service Boundary
-
-The API Gateway owns HTTP routing and Clerk auth validation.
-
-The Integration Service owns:
-
-- GitHub App configuration,
-- GitHub installation metadata,
-- provider credential handling,
-- GitHub webhook verification,
-- repository listing through short-lived installation tokens,
-- repository attachment orchestration with Project Service/database updates.
+Gateway → AI endpoints require `AI_WORKER_INTERNAL_TOKEN`; AI → runner requires the distinct `SANDBOX_RUNNER_INTERNAL_TOKEN`. They are private-network APIs and fail closed if tokens are missing. `/health`, `/ready`, and `/metrics` contain no tenant payloads but should still remain private in production.

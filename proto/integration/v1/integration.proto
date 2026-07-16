@@ -67,12 +67,38 @@ message IngestionJob {
 
 service IntegrationService {
     rpc GetGitHubConfig(GetGitHubConfigRequest) returns (GetGitHubConfigResponse);
+    rpc CreateGitHubInstallSession(CreateGitHubInstallSessionRequest) returns (CreateGitHubInstallSessionResponse);
+    rpc CompleteGitHubInstallSession(CompleteGitHubInstallSessionRequest) returns (CompleteGitHubInstallSessionResponse);
     rpc HandleGitHubCallback(HandleGitHubCallbackRequest) returns (HandleGitHubCallbackResponse);
     rpc ListInstallations(ListInstallationsRequest) returns (ListInstallationsResponse);
     rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
     rpc AttachRepository(AttachRepositoryRequest) returns (AttachRepositoryResponse);
     rpc GetRepositoryConnection(GetRepositoryConnectionRequest) returns (GetRepositoryConnectionResponse);
     rpc HandleGitHubWebhook(HandleGitHubWebhookRequest) returns (HandleGitHubWebhookResponse);
+    rpc DecideFixApproval(DecideFixApprovalRequest) returns (DecideFixApprovalResponse);
+    rpc UpsertLogProviderConnection(UpsertLogProviderConnectionRequest) returns (UpsertLogProviderConnectionResponse);
+    rpc ListLogProviderConnections(ListLogProviderConnectionsRequest) returns (ListLogProviderConnectionsResponse);
+    rpc CollectProviderLogs(CollectProviderLogsRequest) returns (CollectProviderLogsResponse);
+}
+
+message CreateGitHubInstallSessionRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+}
+
+message CreateGitHubInstallSessionResponse {
+    string install_url = 1;
+    string expires_at = 2;
+}
+
+message CompleteGitHubInstallSessionRequest {
+    string state = 1;
+    int64 installation_id = 2;
+}
+
+message CompleteGitHubInstallSessionResponse {
+    GitHubInstallation installation = 1;
+    string workspace_id = 2;
 }
 
 message HandleGitHubCallbackRequest {
@@ -146,3 +172,74 @@ message HandleGitHubWebhookResponse {
     bool success = 1;
 }
 
+message DecideFixApprovalRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string project_id = 3;
+    string approval_id = 4;
+    string decision = 5; // approve | reject
+    string reason = 6;
+}
+
+message DecideFixApprovalResponse {
+    string approval_id = 1;
+    string approval_status = 2;
+    string pull_request_url = 3;
+    int64 pull_request_number = 4;
+    string branch = 5;
+}
+
+message LogProviderConnection {
+    string id = 1;
+    string provider = 2;
+    string display_name = 3;
+    string project_id = 4;
+    string deployment_id = 5;
+    string scope_id = 6;
+    string token_kind = 7;
+    string status = 8;
+    string created_at = 9;
+    string updated_at = 10;
+}
+
+message UpsertLogProviderConnectionRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string provider = 3;       // vercel | railway
+    string display_name = 4;
+    string token = 5;
+    string project_id = 6;     // required for Vercel; informational for Railway
+    string deployment_id = 7;  // required for Railway; optional for Vercel
+    string scope_id = 8;       // Vercel teamId/slug; optional
+    string token_kind = 9;     // bearer | project_token
+}
+
+message UpsertLogProviderConnectionResponse {
+    LogProviderConnection connection = 1;
+}
+
+message ListLogProviderConnectionsRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+}
+
+message ListLogProviderConnectionsResponse {
+    repeated LogProviderConnection connections = 1;
+}
+
+message CollectProviderLogsRequest {
+    string user_id = 1;
+    string workspace_id = 2;
+    string project_id = 3;
+    string integration_id = 4;
+    string log_kind = 5; // runtime | build
+    int32 limit = 6;
+}
+
+message CollectProviderLogsResponse {
+    string source = 1;
+    string content = 2;
+    string provider = 3;
+    string deployment_id = 4;
+    int32 line_count = 5;
+}
