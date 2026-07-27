@@ -21,10 +21,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U opspilot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opspilot} -d ${POSTGRES_DB:-opspilot}"]
       interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 10s
+      start_interval: 2s
 
   redis:
     image: redis:7-alpine
@@ -37,6 +39,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 5s
+      start_interval: 2s
 
   nats:
     image: nats:2.10-alpine
@@ -53,6 +57,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+      start_period: 5s
+      start_interval: 2s
 
   # ── Go Microservices ──────────────────────────────────────────
 
@@ -79,6 +85,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+      start_interval: 2s
 
   workspace-service:
     <<: *service-hardening
@@ -102,6 +110,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+      start_interval: 2s
 
   project-service:
     <<: *service-hardening
@@ -125,6 +135,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+      start_interval: 2s
 
   integration-service:
     <<: *service-hardening
@@ -163,6 +175,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+      start_interval: 2s
 
   api-gateway:
     <<: *service-hardening
@@ -202,6 +216,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+      start_interval: 2s
 
   # ── Isolated fix verification ─────────────────────────────────
 
@@ -230,6 +246,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+      start_interval: 2s
 
   # ── AI Worker ──────────────────────────────────────────────────
 
@@ -276,6 +294,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
+      start_interval: 2s
 
   # ── Web application ───────────────────────────────────────────
 
@@ -310,6 +330,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 20s
+      start_interval: 2s
 
 volumes:
   postgres_data:
