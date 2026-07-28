@@ -1,0 +1,14 @@
+INFO:     127.0.0.1:53120 - "GET /calculate?numerator=10&denominator=0 HTTP/1.1" 500 Internal Server Error
+ERROR:    Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.12/site-packages/uvicorn/protocols/http/h11_impl.py", line 407, in run_asgi
+    result = await app(  # type: ignore[arg-type]
+             ^^^^^^^^^^
+  File "/usr/local/lib/python3.12/site-packages/fastapi/applications.py", line 1054, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.12/site-packages/starlette/applications.py", line 124, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/app/src/app.py", line 8, in calculate
+    result = numerator / denominator
+             ~~~~~~~~~~^~~~~~~~~~~~~
+ZeroDivisionError: division by zero

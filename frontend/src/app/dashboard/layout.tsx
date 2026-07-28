@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { UserButton } from '@clerk/nextjs';
-import { Bot, Home, Settings } from 'lucide-react';
+import { Bot, Home, Settings, Gauge } from 'lucide-react';
 import SyncUser from '@/components/SyncUser';
 
 export default function DashboardLayout({
@@ -25,6 +25,10 @@ export default function DashboardLayout({
           <Link href="/dashboard" className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-[#ffffff0d] text-[var(--text-secondary)] hover:text-white transition-colors">
             <Home size={18} />
             <span className="text-sm font-medium">Workspaces</span>
+          </Link>
+          <Link href="/dashboard/eval" className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-[#ffffff0d] text-[var(--text-secondary)] hover:text-white transition-colors">
+            <Gauge size={18} />
+            <span className="text-sm font-medium">Offline Eval</span>
           </Link>
           <Link href="/dashboard/settings" className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-[#ffffff0d] text-[var(--text-secondary)] hover:text-white transition-colors mt-auto">
             <Settings size={18} />

@@ -102,6 +102,9 @@ func main() {
 	mux.Handle("/api/v1/users/sync", authMiddleware(http.HandlerFunc(userHandler.Sync)))
 	mux.Handle("/api/v1/users/me", authMiddleware(http.HandlerFunc(userHandler.Me)))
 
+	// Evaluation routes
+	mux.Handle("/api/v1/eval/report", authMiddleware(http.HandlerFunc(aiHandler.GetEvalReport)))
+
 	// Integration routes
 	mux.Handle("/api/v1/integrations/github/config", authMiddleware(http.HandlerFunc(integrationHandler.GitHubConfig)))
 	mux.Handle("/api/v1/integrations/github/callback", http.HandlerFunc(integrationHandler.GitHubCallback))

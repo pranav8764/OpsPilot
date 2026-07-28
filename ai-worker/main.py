@@ -487,3 +487,20 @@ async def usage_summary(workspace_id: UUID) -> dict:
     except Exception as exc:
         logger.exception("usage summary failed", extra={"workspace_id": str(workspace_id)})
         raise HTTPException(status_code=502, detail="usage summary could not be loaded") from exc
+
+
+@app.get("/eval/report", dependencies=[Depends(require_internal_token)])
+async def get_eval_report() -> dict:
+    try:
+        report_path = Path(__file__).resolve().parent / "eval" / "report.json"
+        if not report_path.exists():
+            raise HTTPException(status_code=404, detail="Evaluation report not found. Run runner.py first.")
+        
+        with open(report_path, "r") as f:
+            return json.load(f)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("failed to load evaluation report")
+        raise HTTPException(status_code=502, detail="failed to load evaluation report") from exc
+

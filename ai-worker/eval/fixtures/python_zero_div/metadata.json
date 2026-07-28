@@ -1,0 +1,21 @@
+{
+  "id": "python_zero_div",
+  "language": "python",
+  "title": "Division by Zero in Calculate Endpoint",
+  "logs_file": "logs.txt",
+  "buggy_files": {
+    "src/app.py": "app.py"
+  },
+  "expected_citations": [
+    "src/app.py"
+  ],
+  "forbidden_paths": [
+    ".env",
+    "secrets/*"
+  ],
+  "expected_fix": {
+    "file": "src/app.py",
+    "search": "    result = numerator / denominator\n    return {\"result\": result}",
+    "replace": "    if denominator == 0:\n        raise HTTPException(status_code=400, detail=\"Denominator cannot be zero\")\n    result = numerator / denominator\n    return {\"result\": result}"
+  }
+}

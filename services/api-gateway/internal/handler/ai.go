@@ -535,3 +535,39 @@ func extractIncidentID(path string) string {
 	}
 	return ""
 }
+
+// GetEvalReport proxies the request to the AI worker to fetch the evaluation report.
+func (h *AIHandler) GetEvalReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	_ = userID // Auth succeeded
+
+	workerRequest, err := http.NewRequestWithContext(r.Context(), http.MethodGet, h.aiWorkerURL+"/eval/report", nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create worker request")
+		return
+	}
+	setWorkerRequestHeaders(workerRequest, r, h.internalToken, "")
+	response, err := h.httpClient.Do(workerRequest)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "EVAL_UNAVAILABLE", "evaluation service is unavailable")
+		return
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, 10<<20)) // 10MB limit
+	if err != nil || response.StatusCode >= 400 {
+		writeError(w, http.StatusBadGateway, "EVAL_UNAVAILABLE", "evaluation report could not be loaded")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+

@@ -1,0 +1,50 @@
+{
+  "timestamp": "2026-07-28T19:57:26Z",
+  "pass_rate": 100.0,
+  "total_fixtures": 2,
+  "total_passed": 2,
+  "mode": "mock",
+  "provider": "local",
+  "results": [
+    {
+      "fixture_id": "go_db_leak",
+      "title": "DB Connection Pool Exhaustion",
+      "language": "go",
+      "passed": true,
+      "latency_s": 0.001,
+      "rca": {
+        "title": "2026-07-29T10:00:00Z ERROR: database connection pool exhausted",
+        "confidence": "medium"
+      },
+      "proposed_edits": [
+        {
+          "path": "src/main.go",
+          "search": "rows, err := db.Query(\"SELECT email FROM users WHERE id = $1\", userID)\n\tif err != nil {\n\t\treturn \"\", err\n\t}",
+          "replace": "rows, err := db.Query(\"SELECT email FROM users WHERE id = $1\", userID)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tdefer rows.Close()",
+          "reason": "Golden fix metadata"
+        }
+      ],
+      "error": null
+    },
+    {
+      "fixture_id": "python_zero_div",
+      "title": "Division by Zero in Calculate Endpoint",
+      "language": "python",
+      "passed": true,
+      "latency_s": 0.001,
+      "rca": {
+        "title": "INFO:     127.0.0.1:53120 - \"GET /calculate?numerator=10&denominator=0 HTTP/1.1\" 500 Internal Server Error",
+        "confidence": "medium"
+      },
+      "proposed_edits": [
+        {
+          "path": "src/app.py",
+          "search": "    result = numerator / denominator\n    return {\"result\": result}",
+          "replace": "    if denominator == 0:\n        raise HTTPException(status_code=400, detail=\"Denominator cannot be zero\")\n    result = numerator / denominator\n    return {\"result\": result}",
+          "reason": "Golden fix metadata"
+        }
+      ],
+      "error": null
+    }
+  ]
+}

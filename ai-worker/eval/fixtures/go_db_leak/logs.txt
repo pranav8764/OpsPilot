@@ -1,0 +1,7 @@
+2026-07-29T10:00:00Z ERROR: database connection pool exhausted
+panic: pq: sorry, too many clients already
+goroutine 1 [running]:
+main.getUserEmail(0xc0000b6010, 0x1)
+	/app/main.go:10 +0xbe
+main.main()
+	/app/main.go:34 +0x7a

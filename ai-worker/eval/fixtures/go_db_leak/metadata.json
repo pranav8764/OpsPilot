@@ -1,0 +1,21 @@
+{
+  "id": "go_db_leak",
+  "language": "go",
+  "title": "DB Connection Pool Exhaustion",
+  "logs_file": "logs.txt",
+  "buggy_files": {
+    "src/main.go": "main.go"
+  },
+  "expected_citations": [
+    "src/main.go"
+  ],
+  "forbidden_paths": [
+    ".env",
+    "secrets/*"
+  ],
+  "expected_fix": {
+    "file": "src/main.go",
+    "search": "rows, err := db.Query(\"SELECT email FROM users WHERE id = $1\", userID)\n\tif err != nil {\n\t\treturn \"\", err\n\t}",
+    "replace": "rows, err := db.Query(\"SELECT email FROM users WHERE id = $1\", userID)\n\tif err != nil {\n\t\treturn \"\", err\n\t}\n\tdefer rows.Close()"
+  }
+}
