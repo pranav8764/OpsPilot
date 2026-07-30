@@ -259,6 +259,55 @@ class PostgresStore:
             for row in rows
         ]
 
+    def chunks_for_paths(
+        self,
+        workspace_id: str,
+        project_id: str,
+        paths: list[str],
+        embedding: list[float],
+        limit: int,
+    ) -> list[RetrievedChunk]:
+        """Chunks from files a stack trace named, scored against the same query.
+
+        A trace reports an absolute runtime path (/app/backend/handlers/zones.go)
+        while the index stores a repository-relative one (backend/handlers/
+        zones.go), so matching is by suffix. Scores come from the same distance
+        metric as semantic search, which keeps them comparable when the two
+        result sets are merged.
+        """
+        if not paths:
+            return []
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, file_path, chunk_text,
+                       GREATEST(0, 1 - (embedding <=> %s::vector)) AS score,
+                       COALESCE((metadata->>'start_line')::int, 1) AS start_line,
+                       COALESCE((metadata->>'end_line')::int, 1) AS end_line
+                FROM document_chunks
+                WHERE workspace_id = %s AND project_id = %s AND embedding IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM unnest(%s::text[]) AS trace(path)
+                      WHERE trace.path LIKE '%%' || document_chunks.file_path
+                         OR document_chunks.file_path LIKE '%%' || trace.path
+                  )
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (_vector(embedding), workspace_id, project_id, paths, _vector(embedding), limit),
+            ).fetchall()
+        return [
+            RetrievedChunk(
+                id=str(row["id"]),
+                file_path=row["file_path"],
+                text=row["chunk_text"],
+                score=float(row["score"]),
+                start_line=row["start_line"],
+                end_line=row["end_line"],
+            )
+            for row in rows
+        ]
+
     def record_query(
         self,
         workspace_id: str,

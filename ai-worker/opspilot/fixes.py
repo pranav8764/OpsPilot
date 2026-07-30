@@ -195,10 +195,23 @@ class FixProposalService:
             scan = scan_and_redact(repository_file.content)
             if scan.redaction_count:
                 continue
-            if total_chars + len(repository_file.content) > _CANDIDATE_CHAR_BUDGET:
-                continue
-            candidates[path] = repository_file.content
-            total_chars += len(repository_file.content)
+            content = repository_file.content
+            remaining = _CANDIDATE_CHAR_BUDGET - total_chars
+            if len(content) > remaining:
+                # The file a stack trace names is frequently the largest in the
+                # evidence set, and skipping it for being oversized is exactly how
+                # the generator ended up reasoning about a sibling file while the
+                # one containing the bug was discarded. Truncate the top-ranked
+                # candidate instead of dropping it; edits are applied against the
+                # full file, so a shortened view limits only what the model can
+                # see, never what it can change. Later candidates still skip,
+                # since a partial view of a secondary file is rarely worth the
+                # budget it consumes.
+                if candidates or remaining < 2000:
+                    continue
+                content = content[:remaining]
+            candidates[path] = content
+            total_chars += len(content)
             if len(candidates) >= 8:
                 break
         if not candidates:

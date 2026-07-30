@@ -61,10 +61,33 @@ def verification_without_sandbox() -> dict:
 def verify_in_sandbox(verifier: SandboxVerifier, baseline: dict[str, str], patched: dict[str, str]) -> dict:
     baseline_result = verifier.run(baseline)
     patched_result = verifier.run(patched)
-    if patched_result.status in {"failed", "timed_out"}:
+
+    # Compare against the baseline instead of demanding an absolute pass.
+    #
+    # baseline_result used to be computed and then ignored, so a repository whose
+    # tests already failed could never receive a proposal: the patched run failed
+    # identically and the gate refused. That is not a judgement about the change.
+    # It reproduced here on a Go repository, where the sandbox image has no Go
+    # toolchain and every run dies on "go: not found".
+    #
+    # A proposal is now refused only when the patch makes things worse. When the
+    # baseline was already broken the change is allowed through UNVERIFIED, and
+    # verified_fix stays false so the pull request says so plainly rather than
+    # implying the tests vouched for it.
+    regressed = patched_result.status in {"failed", "timed_out"} and baseline_result.status == "passed"
+    if regressed:
         raise ValueError(f"patched repository tests {patched_result.status}; refusing to create a fix proposal")
+
     verified = patched_result.status == "passed"
-    reason = "isolated tests passed" if verified else "the repository has no recognized test command"
+    if verified:
+        reason = "isolated tests passed"
+    elif patched_result.status in {"failed", "timed_out"}:
+        reason = (
+            f"tests {patched_result.status} both before and after the change "
+            f"(baseline: {baseline_result.status}); the fix is unverified"
+        )
+    else:
+        reason = "the repository has no recognized test command"
     return {
         "tests": {
             "status": patched_result.status,

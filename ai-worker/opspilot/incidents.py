@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
+import random
+import os
 from dataclasses import asdict, dataclass
 from typing import Protocol
 
@@ -12,7 +15,23 @@ from .domain import EmbeddingProvider, RetrievedChunk, RetrievalStore
 from .security import scan_and_redact
 
 
+# Groq bills input and output against one tokens-per-minute budget and returns
+# 413 when a single request exceeds it (429 when the window is partly spent).
+# The free tier measured on this account is 8000 TPM, and max_completion_tokens
+# below reserves 1400 of it, so the prompt has to stay well under the remainder.
+# Raise these on a paid tier.
+_RCA_EVIDENCE_CHARS = int(os.getenv("RCA_EVIDENCE_CHARS", "6000"))
+_RCA_LOG_CHARS = int(os.getenv("RCA_LOG_CHARS", "4000"))
+
 ERROR_LINE_RE = re.compile(r"(?i)(fatal|panic|exception|traceback|error|failed|timeout|refused|unavailable|out of memory|oom)")
+# Source paths named directly by a stack trace. These are the single highest
+# signal a log carries -- the runtime is telling us exactly which file failed --
+# so they are retrieved explicitly rather than left to semantic similarity,
+# which ranks a sibling handler above the named file often enough to matter.
+SOURCE_PATH_RE = re.compile(
+    r"[\w./-]*[\w-]+\.(?:go|py|ts|tsx|js|jsx|java|rb|rs|php|cs|kt|swift|scala|c|cc|cpp|h|hpp|sql)"
+)
+
 STACK_FRAME_RE = re.compile(r"(?:\bat\s+[\w.$<>]+\([^)]*\)|File \"[^\"]+\", line \d+|[\w./-]+:\d+(?::\d+)?)")
 VOLATILE_RE = re.compile(r"\b(?:\d{4}-\d{2}-\d{2}[T ][0-9:.+-Z]+|[0-9a-f]{8,}|\d+)\b", re.IGNORECASE)
 
@@ -25,6 +44,7 @@ class ParsedLogs:
     fingerprint: str
     severity: str
     redactions: dict[str, int]
+    referenced_paths: list[str]
 
 
 @dataclass(frozen=True)
@@ -62,7 +82,15 @@ def parse_logs(content: str) -> ParsedLogs:
     severity = "critical" if any(term in joined for term in ("fatal", "panic", "out of memory", "oom")) else "error"
     if not error_lines:
         severity = "warning"
-    return ParsedLogs(scan.content, error_lines, stack_frames, fingerprint, severity, scan.redactions)
+    referenced: list[str] = []
+    for line in error_lines + stack_frames:
+        for match in SOURCE_PATH_RE.findall(line):
+            candidate = match.strip().lstrip("./")
+            if candidate and candidate not in referenced:
+                referenced.append(candidate)
+    return ParsedLogs(
+        scan.content, error_lines, stack_frames, fingerprint, severity, scan.redactions, referenced[:10]
+    )
 
 
 class ExtractiveRCAProvider:
@@ -89,6 +117,20 @@ class ExtractiveRCAProvider:
         )
 
 
+def _post_with_retry(url: str, *, headers: dict, json: dict, timeout: float):
+    """POST, waiting out 429/5xx. 413 is never retried - the prompt must shrink."""
+    delay = 3.0
+    for attempt in range(5):
+        response = httpx.post(url, headers=headers, json=json, timeout=timeout)
+        if response.status_code not in (429, 500, 502, 503, 504) or attempt == 4:
+            return response
+        retry_after = response.headers.get("retry-after")
+        wait = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else delay
+        time.sleep(min(wait, 60.0) + random.uniform(0, 1.0))
+        delay = min(delay * 2, 60.0)
+    return response
+
+
 class GroqRCAProvider:
     def __init__(self, api_key: str, model: str):
         self.api_key = api_key
@@ -97,9 +139,9 @@ class GroqRCAProvider:
     def analyze(self, parsed: ParsedLogs, evidence: list[RetrievedChunk]) -> RCA:
         sources = "\n\n".join(
             f"[S{index}] {chunk.citation}\n{chunk.text}" for index, chunk in enumerate(evidence[:8], start=1)
-        )[:24000]
-        logs = parsed.sanitized_content[-16000:]
-        response = httpx.post(
+        )[:_RCA_EVIDENCE_CHARS]
+        logs = parsed.sanitized_content[-_RCA_LOG_CHARS:]
+        response = _post_with_retry(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
             json={
@@ -178,9 +220,29 @@ class IncidentService:
         evidence: list[RetrievedChunk] = []
         if retrieval_query:
             query_embedding = self.embeddings.embed_query(retrieval_query)
-            evidence = self.retrieval_store.search(
+            semantic = self.retrieval_store.search(
                 workspace_id, project_id, retrieval_query, query_embedding, 8
             )
+            # Files the trace names come first. Pure semantic ranking regularly
+            # places a sibling file above the one the runtime pointed at -- for a
+            # nil-map panic in handlers/zones.go it surfaced main.go and
+            # handlers/hotspots.go and never zones.go at all -- and the fix
+            # generator only receives the top few, so the file containing the bug
+            # never reached the model.
+            pinned: list[RetrievedChunk] = []
+            lookup = getattr(self.retrieval_store, "chunks_for_paths", None)
+            if parsed.referenced_paths and callable(lookup):
+                pinned = lookup(
+                    workspace_id, project_id, parsed.referenced_paths, query_embedding, 4
+                )
+            seen = set()
+            evidence = []
+            for chunk in pinned + semantic:
+                if chunk.id in seen:
+                    continue
+                seen.add(chunk.id)
+                evidence.append(chunk)
+            evidence = evidence[:8]
         rca = self.rca_provider.analyze(parsed, evidence)
         result = self.incident_store.create_incident(
             workspace_id, project_id, user_id, source, parsed, rca, evidence
