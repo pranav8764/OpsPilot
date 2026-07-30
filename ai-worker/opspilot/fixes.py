@@ -4,6 +4,9 @@ import ast
 import difflib
 import hashlib
 import json
+import os
+import random
+import time
 from dataclasses import asdict, dataclass
 from pathlib import PurePosixPath
 from typing import Protocol
@@ -19,6 +22,17 @@ import yaml
 from .domain import IngestionJob, RepositoryFile
 from .security import scan_and_redact
 from .sandbox import SandboxVerifier, verification_without_sandbox, verify_in_sandbox
+
+# Total characters of candidate source sent to the fix model.
+#
+# Groq bills input AND output against one tokens-per-minute budget, and returns
+# 413 "Request too large" when a single request exceeds it outright (429 when the
+# rolling window is merely partly spent). Measured on this account: gpt-oss-120b
+# on the free tier is TPM 8000. With max_completion_tokens=3000 reserved for the
+# reply and ~500 for the prompt, roughly 4500 tokens remain for evidence, so the
+# default here is deliberately conservative. Raise it on a paid tier — 8000
+# characters is about two medium source files, which is thin for a real fix.
+_CANDIDATE_CHAR_BUDGET = int(os.getenv("FIX_CANDIDATE_CHAR_BUDGET", "8000"))
 
 
 @dataclass(frozen=True)
@@ -78,9 +92,23 @@ class GroqFixProvider:
         self.api_key = api_key
         self.model = model
 
+
+    def _post_with_retry(self, url: str, *, headers: dict, json: dict, timeout: float):
+        """POST, waiting out 429/5xx. 413 is not retried - the payload must shrink."""
+        delay = 3.0
+        for attempt in range(5):
+            response = httpx.post(url, headers=headers, json=json, timeout=timeout)
+            if response.status_code not in (429, 500, 502, 503, 504) or attempt == 4:
+                return response
+            retry_after = response.headers.get("retry-after")
+            wait = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() else delay
+            time.sleep(min(wait, 60.0) + random.uniform(0, 1.0))
+            delay = min(delay * 2, 60.0)
+        return response
+
     def propose(self, context: FixContext, candidates: dict[str, str]) -> list[EditInstruction]:
-        files = "\n\n".join(f"FILE: {path}\n{content}" for path, content in candidates.items())[:50000]
-        response = httpx.post(
+        files = "\n\n".join(f"FILE: {path}\n{content}" for path, content in candidates.items())[:_CANDIDATE_CHAR_BUDGET]
+        response = self._post_with_retry(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
             json={
@@ -167,7 +195,7 @@ class FixProposalService:
             scan = scan_and_redact(repository_file.content)
             if scan.redaction_count:
                 continue
-            if total_chars + len(repository_file.content) > 50000:
+            if total_chars + len(repository_file.content) > _CANDIDATE_CHAR_BUDGET:
                 continue
             candidates[path] = repository_file.content
             total_chars += len(repository_file.content)

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+import random
 import re
+import time
 from typing import Iterable
 
 from .config import Settings
@@ -38,6 +40,24 @@ class LocalHashEmbeddings:
         return self._embed(text)
 
 
+# Provider-side failures that are worth waiting out rather than failing the job.
+_TRANSIENT_MARKERS = (
+    "RESOURCE_EXHAUSTED",  # 429 rate limit
+    "UNAVAILABLE",         # 503 upstream blip
+    "INTERNAL",            # 500
+    "DEADLINE_EXCEEDED",   # 504
+    "429",
+    "500",
+    "503",
+    "504",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    message = str(exc)
+    return any(marker in message for marker in _TRANSIENT_MARKERS)
+
+
 class GeminiEmbeddings:
     def __init__(self, api_key: str, model: str, dimensions: int):
         from google import genai
@@ -52,15 +72,49 @@ class GeminiEmbeddings:
         values = list(texts)
         if not values:
             return []
-        response = self._client.models.embed_content(
-            model=self._model,
-            contents=values,
-            config=types.EmbedContentConfig(
-                task_type=task_type,
-                output_dimensionality=self._dimensions,
-            ),
-        )
-        return [list(item.values) for item in response.embeddings]
+        # Passing a plain list[str] as `contents` makes the SDK treat it as ONE
+        # Content with many parts, so the API returns a single embedding for the
+        # whole batch — silently, without erroring. Each text needs its own
+        # Content object to get one embedding per input. Getting this wrong also
+        # forces a call per chunk, which exhausts the per-minute quota on a
+        # repository of any size.
+        contents = [types.Content(parts=[types.Part(text=value)]) for value in values]
+
+        # Ingestion calls this once per repository file, so a repo of any size
+        # bursts well past the per-minute embedding quota. Retry the transient
+        # provider failures rather than dead-lettering the whole job over one of
+        # them: a rate limit or a 503 is a wait, not an error. Everything else
+        # (bad key, bad model, malformed request) propagates immediately.
+        delay = 2.0
+        last_exc: Exception | None = None
+        for attempt in range(6):
+            try:
+                response = self._client.models.embed_content(
+                    model=self._model,
+                    contents=contents,
+                    config=types.EmbedContentConfig(
+                        task_type=task_type,
+                        output_dimensionality=self._dimensions,
+                    ),
+                )
+                break
+            except Exception as exc:  # noqa: BLE001 - provider raises broad errors
+                if not _is_transient(exc):
+                    raise
+                last_exc = exc
+                if attempt == 5:
+                    raise
+                time.sleep(delay + random.uniform(0, 1.0))
+                delay = min(delay * 2, 60.0)
+        else:  # pragma: no cover - loop always breaks or raises
+            raise RuntimeError("embedding retries exhausted") from last_exc
+
+        vectors = [list(item.values) for item in response.embeddings]
+        if len(vectors) != len(values):
+            raise RuntimeError(
+                f"gemini returned {len(vectors)} embeddings for {len(values)} inputs"
+            )
+        return vectors
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return self._embed(texts, "RETRIEVAL_DOCUMENT")

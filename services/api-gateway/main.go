@@ -299,13 +299,14 @@ func main() {
 	}
 }
 
+// dialGRPC creates a lazy client connection. It deliberately does not block on
+// the backend being reachable: gRPC reconnects on its own, and calls made while
+// a backend is down fail fast with codes.Unavailable. Blocking here meant one
+// slow backend at boot took the whole gateway down with it, and with no retry
+// anywhere the stack then sat in Docker's 60s restart backoff.
 func dialGRPC(addr string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	return grpc.DialContext(ctx, addr,
+	return grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 }
 
