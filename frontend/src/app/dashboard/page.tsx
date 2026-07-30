@@ -65,7 +65,7 @@ export default function WorkspacesPage() {
   if (loading) {
     return (
       <div className="flex-center h-full">
-        <Loader2 className="animate-spin text-indigo-500" size={32} />
+        <Loader2 className="animate-spin text-[var(--accent-primary)]" size={32} />
       </div>
     );
   }
@@ -74,13 +74,13 @@ export default function WorkspacesPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex-between mb-8 animate-fade-in">
         <div>
-          <h1 className="text-3xl font-bold font-display text-white mb-2">Workspaces</h1>
-          <p className="text-zinc-400">Manage your organizations and projects.</p>
+          <h1 className="text-3xl font-bold font-display text-[var(--text-primary)] mb-2">Workspaces</h1>
+          <p className="text-[var(--text-secondary)]">Manage your organizations and projects.</p>
         </div>
       </div>
 
       {error && (
-        <div role="alert" className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
+        <div role="alert" className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-[var(--error)]/25 bg-[var(--error)]/10 p-4 text-sm text-[var(--error)]">
           <span>{error}</span>
           <button type="button" onClick={fetchWorkspaces} className="btn btn-secondary self-start sm:self-auto">
             Retry
@@ -92,13 +92,13 @@ export default function WorkspacesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in animate-delay-1">
         {/* Create New Workspace Card */}
-        <div className="glass-card p-6 flex flex-col justify-between border-dashed border-2 border-[var(--border-medium)] bg-[var(--bg-glass)] hover:bg-[#ffffff05]">
+        <div className="glass-card p-6 flex flex-col justify-between border-dashed border-2 border-[var(--border-medium)] bg-[var(--bg-glass)] hover:bg-[var(--bg-tertiary)]">
           <div>
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex-center mb-4">
-              <Plus size={20} className="text-indigo-400" />
+            <div className="w-10 h-10 rounded-full bg-[var(--accent-primary)]/20 flex-center mb-4">
+              <Plus size={20} className="text-[var(--accent-primary)]" />
             </div>
-            <h3 className="text-lg font-medium text-white mb-2">Create Workspace</h3>
-            <p className="text-sm text-zinc-400 mb-6">Start a new isolated environment for your team&apos;s projects.</p>
+            <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">Create Workspace</h3>
+            <p className="text-sm text-[var(--text-secondary)] mb-6">Start a new isolated environment for your team&apos;s projects.</p>
           </div>
 
           <form onSubmit={handleCreate} className="flex flex-col gap-3">
@@ -125,20 +125,20 @@ export default function WorkspacesPage() {
         {workspaces.map((ws) => (
           <Link href={`/dashboard/${ws.id}`} key={ws.id} className="glass-card p-6 flex flex-col group">
             <div className="flex-between mb-4">
-              <div className="w-10 h-10 rounded-lg bg-pink-500/20 flex-center">
-                <Building2 size={20} className="text-pink-400" />
+              <div className="w-10 h-10 rounded-lg bg-[var(--accent-primary)]/20 flex-center">
+                <Building2 size={20} className="text-[var(--accent-primary)]" />
               </div>
               <span className="badge badge-neutral">{ws.plan.toUpperCase()}</span>
             </div>
 
-            <h3 className="text-xl font-medium text-white mb-1 group-hover:text-indigo-400 transition-colors">
+            <h3 className="text-xl font-medium text-[var(--text-primary)] mb-1 group-hover:text-[var(--accent-primary)] transition-colors">
               {ws.name}
             </h3>
-            <p className="text-sm text-zinc-500 mb-6 font-mono">{ws.slug}</p>
+            <p className="text-sm text-[var(--text-muted)] mb-6 font-mono">{ws.slug}</p>
 
             <div className="mt-auto pt-4 border-t border-[var(--border-light)] flex-between text-sm">
-              <span className="text-zinc-400">Role: <span className="text-white capitalize">{ws.role}</span></span>
-              <ArrowRight size={16} className="text-zinc-500 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
+              <span className="text-[var(--text-secondary)]">Role: <span className="text-[var(--text-primary)] capitalize">{ws.role}</span></span>
+              <ArrowRight size={16} className="text-[var(--text-muted)] group-hover:text-[var(--accent-primary)] group-hover:translate-x-1 transition-all" />
             </div>
           </Link>
         ))}

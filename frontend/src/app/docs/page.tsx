@@ -2,10 +2,10 @@ import Link from "next/link";
 import { PublicPage } from "@/components/public-page";
 
 const steps = [
-  ["1. Connect", "Install the least-privilege GitHub App, select a repository and branch, then let OpsPilot index a pinned commit."],
+  ["1. Connect", "Install the least-privilege GitHub App, select a repository and branch, then let Archiatros index a pinned commit."],
   ["2. Investigate", "Paste logs or connect a Vercel or Railway deployment. Logs are bounded, normalized, redacted, and joined with cited repository evidence."],
   ["3. Review", "Inspect the durable incident, root-cause confidence, evidence, proposed file changes, exact diff, and sandbox results."],
-  ["4. Approve", "An owner or admin can approve the exact payload before OpsPilot revalidates the base commit and opens a draft FIX PR."],
+  ["4. Approve", "An owner or admin can approve the exact payload before Archiatros revalidates the base commit and opens a draft FIX PR."],
 ];
 
 export default function DocsPage() {
@@ -13,7 +13,7 @@ export default function DocsPage() {
     <PublicPage
       eyebrow="Product guide"
       title="A safe operating loop for AI-assisted fixes"
-      description="OpsPilot is built around evidence, bounded tools, durable state, and explicit approval—not autonomous production access."
+      description="Archiatros is built around evidence, bounded tools, durable state, and explicit approval—not autonomous production access."
     >
       <section className="glass-panel p-6 md:p-8">
         <h2 className="text-2xl mb-5">Core workflow</h2>
@@ -21,7 +21,7 @@ export default function DocsPage() {
           {steps.map(([title, detail]) => (
             <li key={title}>
               <h3 className="text-lg mb-1">{title}</h3>
-              <p className="text-zinc-400">{detail}</p>
+              <p className="text-[var(--text-secondary)]">{detail}</p>
             </li>
           ))}
         </ol>
@@ -30,7 +30,7 @@ export default function DocsPage() {
       <section className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div className="glass-card p-6">
           <h2 className="text-xl">What the agent can do</h2>
-          <ul className="mt-4 space-y-2 text-zinc-400 list-disc pl-5">
+          <ul className="mt-4 space-y-2 text-[var(--text-secondary)] list-disc pl-5">
             <li>Read approved repository files at a pinned commit.</li>
             <li>Collect bounded runtime or build logs.</li>
             <li>Create cited RCA and deployment-readiness reports.</li>
@@ -41,7 +41,7 @@ export default function DocsPage() {
         </div>
         <div className="glass-card p-6">
           <h2 className="text-xl">What it cannot do</h2>
-          <ul className="mt-4 space-y-2 text-zinc-400 list-disc pl-5">
+          <ul className="mt-4 space-y-2 text-[var(--text-secondary)] list-disc pl-5">
             <li>Read secret files or send detected secrets to a model.</li>
             <li>Modify workflows, keys, lockfiles, or generated files.</li>
             <li>Push to the base branch or merge a pull request.</li>
@@ -54,7 +54,7 @@ export default function DocsPage() {
 
       <section className="glass-panel p-6 md:p-8">
         <h2 className="text-2xl">Operator documentation</h2>
-        <p className="text-zinc-400 mb-5">
+        <p className="text-[var(--text-secondary)] mb-5">
           Setup, architecture, API contracts, production hardening, backups, and the real-provider acceptance checklist live with the source repository.
         </p>
         <a

@@ -78,7 +78,7 @@ export default function EvalDashboard() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <RefreshCw className="animate-spin text-indigo-500" size={32} />
+        <RefreshCw className="animate-spin text-[var(--accent-primary)]" size={32} />
         <span className="text-[var(--text-secondary)] text-sm">Loading offline evaluation report...</span>
       </div>
     );
@@ -87,23 +87,23 @@ export default function EvalDashboard() {
   if (error === 'NO_REPORT') {
     return (
       <div className="max-w-2xl mx-auto mt-12 p-8 rounded-lg border border-[var(--border-light)] bg-[var(--bg-secondary)] flex flex-col items-center text-center gap-6">
-        <div className="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center">
-          <FileCode className="text-indigo-500" size={32} />
+        <div className="w-16 h-16 rounded-full bg-[var(--accent-primary)]/10 flex items-center justify-center">
+          <FileCode className="text-[var(--accent-primary)]" size={32} />
         </div>
         <div>
-          <h3 className="font-display font-bold text-xl mb-2 text-white">No Evaluation Report Found</h3>
+          <h3 className="font-display font-bold text-xl mb-2 text-[var(--text-primary)]">No Evaluation Report Found</h3>
           <p className="text-[var(--text-secondary)] text-sm max-w-md">
             The offline evaluation suite has not been run in this environment yet. Run the evaluation runner CLI from the root workspace directory to generate a report.
           </p>
         </div>
         <div className="w-full bg-[var(--bg-primary)] p-4 rounded-md font-mono text-left text-xs border border-[var(--border-light)] relative group">
-          <span className="text-indigo-400"># Run the offline evaluation suite</span>
+          <span className="text-[var(--accent-primary)]"># Run the offline evaluation suite</span>
           <br />
-          <span className="text-white">./ai-worker/.venv/bin/python ai-worker/eval/runner.py --mode mock</span>
+          <span className="text-[var(--text-primary)]">./ai-worker/.venv/bin/python ai-worker/eval/runner.py --mode mock</span>
         </div>
         <button
           onClick={fetchReport}
-          className="px-4 py-2 rounded bg-indigo-600 text-white font-medium text-sm hover:bg-indigo-700 transition-colors"
+          className="px-4 py-2 rounded bg-[var(--accent-primary)] text-[var(--text-primary)] font-medium text-sm hover:bg-[var(--accent-primary-hover)] transition-colors"
         >
           Check Again
         </button>
@@ -113,13 +113,13 @@ export default function EvalDashboard() {
 
   if (error || !report) {
     return (
-      <div className="max-w-md mx-auto mt-12 p-6 rounded-lg border border-red-500/20 bg-red-500/5 text-center flex flex-col items-center gap-4">
-        <AlertTriangle className="text-red-500" size={32} />
-        <h3 className="font-display font-bold text-lg text-white">Failed to Load Report</h3>
+      <div className="max-w-md mx-auto mt-12 p-6 rounded-lg border border-[var(--error)]/20 bg-[var(--error)]/5 text-center flex flex-col items-center gap-4">
+        <AlertTriangle className="text-[var(--error)]" size={32} />
+        <h3 className="font-display font-bold text-lg text-[var(--text-primary)]">Failed to Load Report</h3>
         <p className="text-[var(--text-secondary)] text-sm">{error}</p>
         <button
           onClick={fetchReport}
-          className="px-4 py-2 rounded bg-[var(--bg-secondary)] text-white text-sm font-medium border border-[var(--border-light)] hover:bg-[#ffffff0d]"
+          className="px-4 py-2 rounded bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm font-medium border border-[var(--border-light)] hover:bg-[var(--bg-tertiary)]"
         >
           Retry
         </button>
@@ -132,14 +132,14 @@ export default function EvalDashboard() {
       {/* Header section */}
       <div className="flex items-center justify-between border-b border-[var(--border-light)] pb-6">
         <div>
-          <h1 className="font-display font-bold text-2xl text-white">Offline Evaluation Benchmark</h1>
+          <h1 className="font-display font-bold text-2xl text-[var(--text-primary)]">Offline Evaluation Benchmark</h1>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            Last run: {new Date(report.timestamp).toLocaleString()} | Mode: <span className="capitalize font-semibold text-indigo-400">{report.mode}</span> | Provider: <span className="capitalize font-semibold text-indigo-400">{report.provider}</span>
+            Last run: {new Date(report.timestamp).toLocaleString()} | Mode: <span className="capitalize font-semibold text-[var(--accent-primary)]">{report.mode}</span> | Provider: <span className="capitalize font-semibold text-[var(--accent-primary)]">{report.provider}</span>
           </p>
         </div>
         <button
           onClick={fetchReport}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-light)] text-sm hover:bg-[#ffffff0d] transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-light)] text-sm hover:bg-[var(--bg-tertiary)] transition-colors"
         >
           <RefreshCw size={14} />
           Reload
@@ -149,10 +149,10 @@ export default function EvalDashboard() {
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="p-6 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)] relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl" />
+          <div className="absolute top-0 right-0 w-24 h-24 bg-[var(--accent-primary)]/5 rounded-full blur-2xl" />
           <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Overall Pass Rate</span>
           <div className="flex items-baseline gap-2 mt-2">
-            <span className={`text-4xl font-display font-bold ${report.pass_rate === 100 ? 'text-green-500' : 'text-indigo-400'}`}>
+            <span className={`text-4xl font-display font-bold ${report.pass_rate === 100 ? 'text-[var(--success)]' : 'text-[var(--accent-primary)]'}`}>
               {report.pass_rate.toFixed(0)}%
             </span>
           </div>
@@ -161,7 +161,7 @@ export default function EvalDashboard() {
         <div className="p-6 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)]">
           <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Passed Incidents</span>
           <div className="flex items-center gap-3 mt-2">
-            <span className="text-4xl font-display font-bold text-white">
+            <span className="text-4xl font-display font-bold text-[var(--text-primary)]">
               {report.total_passed}
             </span>
             <span className="text-lg text-[var(--text-secondary)]">/ {report.total_fixtures}</span>
@@ -170,8 +170,8 @@ export default function EvalDashboard() {
 
         <div className="p-6 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)]">
           <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Avg Latency</span>
-          <div className="flex items-center gap-2 mt-2 text-white">
-            <Clock className="text-indigo-400" size={24} />
+          <div className="flex items-center gap-2 mt-2 text-[var(--text-primary)]">
+            <Clock className="text-[var(--accent-primary)]" size={24} />
             <span className="text-3xl font-display font-bold">
               {(report.results.reduce((acc, curr) => acc + curr.latency_s, 0) / report.total_fixtures).toFixed(3)}
             </span>
@@ -181,7 +181,7 @@ export default function EvalDashboard() {
 
         <div className="p-6 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-light)]">
           <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Security Policy</span>
-          <div className="flex items-center gap-2 mt-2 text-green-500">
+          <div className="flex items-center gap-2 mt-2 text-[var(--success)]">
             <ShieldCheck size={24} />
             <span className="text-2xl font-display font-bold">Compliant</span>
           </div>
@@ -192,11 +192,11 @@ export default function EvalDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Results List */}
         <div className="lg:col-span-2 flex flex-col gap-4">
-          <h3 className="font-display font-bold text-lg text-white">Evaluated Incidents</h3>
+          <h3 className="font-display font-bold text-lg text-[var(--text-primary)]">Evaluated Incidents</h3>
           <div className="rounded-lg border border-[var(--border-light)] bg-[var(--bg-secondary)] overflow-hidden">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[var(--border-light)] bg-[#ffffff05] text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wider">
+                <tr className="border-b border-[var(--border-light)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs font-semibold uppercase tracking-wider">
                   <th className="p-4">Fixture ID / Title</th>
                   <th className="p-4">Language</th>
                   <th className="p-4">Status</th>
@@ -205,13 +205,13 @@ export default function EvalDashboard() {
               </thead>
               <tbody className="divide-y divide-[var(--border-light)]">
                 {report.results.map((result) => (
-                  <tr key={result.fixture_id} className="hover:bg-[#ffffff05] transition-colors">
+                  <tr key={result.fixture_id} className="hover:bg-[var(--bg-tertiary)] transition-colors">
                     <td className="p-4">
-                      <div className="font-medium text-white">{result.title}</div>
+                      <div className="font-medium text-[var(--text-primary)]">{result.title}</div>
                       <div className="text-xs font-mono text-[var(--text-secondary)] mt-0.5">{result.fixture_id}</div>
                     </td>
                     <td className="p-4">
-                      <span className="text-xs font-semibold uppercase text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded">
+                      <span className="text-xs font-semibold uppercase text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 px-2 py-0.5 rounded">
                         {result.language}
                       </span>
                     </td>
@@ -219,13 +219,13 @@ export default function EvalDashboard() {
                       <div className="flex items-center gap-1.5">
                         {result.passed ? (
                           <>
-                            <CheckCircle className="text-green-500" size={16} />
-                            <span className="text-sm font-medium text-green-500">Passed</span>
+                            <CheckCircle className="text-[var(--success)]" size={16} />
+                            <span className="text-sm font-medium text-[var(--success)]">Passed</span>
                           </>
                         ) : (
                           <>
-                            <XCircle className="text-red-500" size={16} />
-                            <span className="text-sm font-medium text-red-500">Failed</span>
+                            <XCircle className="text-[var(--error)]" size={16} />
+                            <span className="text-sm font-medium text-[var(--error)]">Failed</span>
                           </>
                         )}
                       </div>
@@ -233,7 +233,7 @@ export default function EvalDashboard() {
                     <td className="p-4 text-right">
                       <button
                         onClick={() => setSelectedResult(result)}
-                        className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
+                        className="text-xs font-medium text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] transition-colors"
                       >
                         Inspect Details
                       </button>
@@ -247,17 +247,17 @@ export default function EvalDashboard() {
 
         {/* Selected Result Detail panel */}
         <div className="flex flex-col gap-4">
-          <h3 className="font-display font-bold text-lg text-white">Details & Proposed Code Diff</h3>
+          <h3 className="font-display font-bold text-lg text-[var(--text-primary)]">Details & Proposed Code Diff</h3>
           {selectedResult ? (
             <div className="p-6 rounded-lg border border-[var(--border-light)] bg-[var(--bg-secondary)] flex flex-col gap-6 h-fit">
               <div>
-                <h4 className="font-display font-bold text-base text-white">{selectedResult.title}</h4>
+                <h4 className="font-display font-bold text-base text-[var(--text-primary)]">{selectedResult.title}</h4>
                 <span className="text-xs font-mono text-[var(--text-secondary)]">{selectedResult.fixture_id}</span>
               </div>
 
               <div>
                 <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider block mb-1">Generated Root Cause (RCA)</span>
-                <p className="text-sm text-white bg-[var(--bg-primary)] p-3 rounded border border-[var(--border-light)] leading-relaxed">
+                <p className="text-sm text-[var(--text-primary)] bg-[var(--bg-primary)] p-3 rounded border border-[var(--border-light)] leading-relaxed">
                   {selectedResult.rca.title}
                 </p>
               </div>
@@ -268,22 +268,22 @@ export default function EvalDashboard() {
                   {selectedResult.proposed_edits.map((edit, idx) => (
                     <div key={idx} className="flex flex-col gap-2 bg-[var(--bg-primary)] p-4 rounded border border-[var(--border-light)]">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="font-mono text-indigo-400">{edit.path}</span>
+                        <span className="font-mono text-[var(--accent-primary)]">{edit.path}</span>
                         <span className="text-[var(--text-secondary)] italic">{edit.reason}</span>
                       </div>
-                      <div className="font-mono text-xs mt-2 overflow-auto max-h-[160px] flex flex-col gap-1 border-l-2 border-red-500/50 pl-2 bg-red-500/5">
+                      <div className="font-mono text-xs mt-2 overflow-auto max-h-[160px] flex flex-col gap-1 border-l-2 border-[var(--error)]/50 pl-2 bg-[var(--error)]/5">
                         <div className="text-[var(--text-secondary)] text-[10px] uppercase font-sans tracking-wide">Original Code:</div>
-                        <pre className="text-red-400 whitespace-pre">{edit.search}</pre>
+                        <pre className="text-[var(--error)] whitespace-pre">{edit.search}</pre>
                       </div>
-                      <div className="font-mono text-xs mt-2 overflow-auto max-h-[160px] flex flex-col gap-1 border-l-2 border-green-500/50 pl-2 bg-green-500/5">
+                      <div className="font-mono text-xs mt-2 overflow-auto max-h-[160px] flex flex-col gap-1 border-l-2 border-[var(--success)]/50 pl-2 bg-[var(--success)]/5">
                         <div className="text-[var(--text-secondary)] text-[10px] uppercase font-sans tracking-wide">Patched Code:</div>
-                        <pre className="text-green-400 whitespace-pre">{edit.replace}</pre>
+                        <pre className="text-[var(--success)] whitespace-pre">{edit.replace}</pre>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : selectedResult.error ? (
-                <div className="flex flex-col gap-1.5 p-4 rounded border border-red-500/20 bg-red-500/5 text-red-400">
+                <div className="flex flex-col gap-1.5 p-4 rounded border border-[var(--error)]/20 bg-[var(--error)]/5 text-[var(--error)]">
                   <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">Error Log</span>
                   <p className="text-xs font-mono whitespace-pre-wrap">{selectedResult.error}</p>
                 </div>

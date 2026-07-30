@@ -229,14 +229,14 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
   if (loading) {
     return (
       <div className="flex-center h-full">
-        <Loader2 className="animate-spin text-indigo-500" size={32} />
+        <Loader2 className="animate-spin text-[var(--accent-primary)]" size={32} />
       </div>
     );
   }
 
   if (!workspace) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-zinc-400">
+      <div className="flex flex-col items-center justify-center h-full text-[var(--text-secondary)]">
         <h2 className="text-xl mb-4">Workspace not found</h2>
         <Link href="/dashboard" className="btn btn-secondary"><ArrowLeft size={16} /> Back to Dashboard</Link>
       </div>
@@ -259,17 +259,17 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
 
   return (
     <div className="max-w-6xl mx-auto">
-      <Link href="/dashboard" className="inline-flex items-center gap-2 text-zinc-400 hover:text-white mb-6 transition-colors text-sm font-medium">
+      <Link href="/dashboard" className="inline-flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] mb-6 transition-colors text-sm font-medium">
         <ArrowLeft size={16} /> Back to Workspaces
       </Link>
 
       <div className="flex-between mb-8 animate-fade-in">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold font-display text-white">{workspace.name}</h1>
+            <h1 className="text-3xl font-bold font-display text-[var(--text-primary)]">{workspace.name}</h1>
             <span className="badge badge-neutral">{workspace.plan.toUpperCase()}</span>
           </div>
-          <p className="text-zinc-400 font-mono text-sm">{workspace.slug}</p>
+          <p className="text-[var(--text-secondary)] font-mono text-sm">{workspace.slug}</p>
         </div>
       </div>
 
@@ -282,24 +282,24 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in animate-delay-1">
         {/* Connection & Project Creation Card */}
-        <div className="glass-card p-6 border-dashed border-2 border-[var(--border-medium)] bg-[var(--bg-glass)] hover:bg-[#ffffff02] transition-colors">
+        <div className="glass-card p-6 border-dashed border-2 border-[var(--border-medium)] bg-[var(--bg-glass)] hover:bg-[var(--bg-tertiary)] transition-colors">
           <div className="mb-4">
-            <div className="w-10 h-10 rounded-full bg-indigo-500/20 flex-center mb-3">
-              <GithubIcon size={20} className="text-indigo-400" />
+            <div className="w-10 h-10 rounded-full bg-[var(--accent-primary)]/20 flex-center mb-3">
+              <GithubIcon size={20} className="text-[var(--accent-primary)]" />
             </div>
-            <h3 className="text-lg font-medium text-white">Connect Repository</h3>
-            <p className="text-xs text-zinc-400 mt-1">Connect GitHub repository to initialize AI context.</p>
+            <h3 className="text-lg font-medium text-[var(--text-primary)]">Connect Repository</h3>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">Connect GitHub repository to initialize AI context.</p>
           </div>
 
           {!loadingConfig && githubConfig && !githubConfig.configured ? (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400 flex items-start gap-2 mb-4">
+            <div className="bg-[var(--error)]/10 border border-[var(--error)]/20 rounded-lg p-3 text-xs text-[var(--error)] flex items-start gap-2 mb-4">
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <span>GitHub App is not configured on the backend. Please check your settings.</span>
             </div>
           ) : installations.length === 0 ? (
             <div className="flex flex-col gap-3">
-              <p className="text-xs text-zinc-500">Attach OpsPilot GitHub App to list your account/org repositories.</p>
-              {installError && <p className="text-xs text-red-400">{installError}</p>}
+              <p className="text-xs text-[var(--text-muted)]">Attach Archiatros GitHub App to list your account/org repositories.</p>
+              {installError && <p className="text-xs text-[var(--error)]">{installError}</p>}
               <button
                 type="button"
                 onClick={startGitHubInstall}
@@ -307,7 +307,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
                 className="btn btn-primary w-full flex items-center justify-center gap-2"
               >
                 {startingInstall ? <Loader2 size={16} className="animate-spin" /> : <GithubIcon size={16} />}
-                {startingInstall ? 'Preparing…' : 'Install OpsPilot App'}
+                {startingInstall ? 'Preparing…' : 'Install Archiatros App'}
               </button>
               <button onClick={fetchData} className="btn btn-secondary w-full text-xs flex items-center justify-center gap-1">
                 <RefreshCw size={12} /> Refresh Connection
@@ -323,9 +323,9 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               )}
 
               <div className="flex flex-col gap-1">
-                <label className="text-zinc-400 font-medium">GitHub Organization / Account</label>
+                <label className="text-[var(--text-secondary)] font-medium">GitHub Organization / Account</label>
                 <select
-                  className="input-field py-1.5 px-2 bg-zinc-900 border-[#ffffff15] text-white rounded cursor-pointer"
+                  className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
                   value={selectedInst}
                   onChange={(e) => setSelectedInst(e.target.value)}
                 >
@@ -338,14 +338,14 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-zinc-400 font-medium">Repository</label>
+                <label className="text-[var(--text-secondary)] font-medium">Repository</label>
                 {loadingRepos ? (
-                  <div className="flex items-center gap-2 py-1.5 text-zinc-400">
+                  <div className="flex items-center gap-2 py-1.5 text-[var(--text-secondary)]">
                     <Loader2 size={12} className="animate-spin" /> Loading repositories...
                   </div>
                 ) : (
                   <select
-                    className="input-field py-1.5 px-2 bg-zinc-900 border-[#ffffff15] text-white rounded cursor-pointer"
+                    className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
                     value={selectedRepoId}
                     onChange={(e) => handleSelectRepo(e.target.value)}
                   >
@@ -360,7 +360,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               </div>
 
               <div className="flex flex-col gap-1 mt-2">
-                <label className="text-zinc-400 font-medium">Project Name</label>
+                <label className="text-[var(--text-secondary)] font-medium">Project Name</label>
                 <input
                   type="text"
                   placeholder="e.g. core-api"
@@ -372,7 +372,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-zinc-400 font-medium">Description (Optional)</label>
+                <label className="text-[var(--text-secondary)] font-medium">Description (Optional)</label>
                 <textarea
                   placeholder="App details..."
                   className="input-field resize-none h-14"
@@ -430,9 +430,9 @@ function WorkspaceUsage({ usage }: { usage: WorkspaceUsageSummary }) {
   };
   return (
     <details className="glass-card p-4 mb-6 animate-fade-in">
-      <summary className="cursor-pointer list-none flex items-center gap-2 text-xs text-zinc-300">
-        <ShieldCheck size={14} className="text-indigo-300" /> {usage.plan.toUpperCase()} plan usage
-        <span className="ml-auto text-[10px] text-zinc-500">Atomic workspace limits</span>
+      <summary className="cursor-pointer list-none flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <ShieldCheck size={14} className="text-[var(--accent-primary-hover)]" /> {usage.plan.toUpperCase()} plan usage
+        <span className="ml-auto text-[10px] text-[var(--text-muted)]">Atomic workspace limits</span>
       </summary>
       <div className="mt-3 grid grid-cols-2 lg:grid-cols-3 gap-3">
         {Object.entries(usage.usage).map(([key, item]) => {
@@ -442,9 +442,9 @@ function WorkspaceUsage({ usage }: { usage: WorkspaceUsageSummary }) {
             ? `${(item.used / 1024 / 1024).toFixed(1)} / ${(item.limit / 1024 / 1024).toFixed(0)} MiB`
             : `${item.used} / ${item.limit}`;
           return (
-            <div key={key} className="rounded bg-black/20 p-2 text-[10px]">
-              <div className="flex justify-between gap-2 text-zinc-400"><span>{labels[key] || key}</span><span className="font-mono">{display}</span></div>
-              <div className="mt-1.5 h-1 rounded bg-white/5 overflow-hidden"><div className={`h-full ${ratio >= 90 ? 'bg-red-400' : 'bg-indigo-400'}`} style={{ width: `${ratio}%` }} /></div>
+            <div key={key} className="rounded bg-[var(--bg-tertiary)]/20 p-2 text-[10px]">
+              <div className="flex justify-between gap-2 text-[var(--text-secondary)]"><span>{labels[key] || key}</span><span className="font-mono">{display}</span></div>
+              <div className="mt-1.5 h-1 rounded bg-[var(--bg-tertiary)]/5 overflow-hidden"><div className={`h-full ${ratio >= 90 ? 'bg-[var(--error)]' : 'bg-[var(--accent-primary)]'}`} style={{ width: `${ratio}%` }} /></div>
             </div>
           );
         })}
@@ -480,13 +480,13 @@ function WorkspaceRetentionSettings({ workspace, onUpdated }: { workspace: Works
 
   return (
     <details className="glass-card p-4 mb-6 animate-fade-in">
-      <summary className="cursor-pointer list-none flex items-center gap-2 text-xs text-zinc-300">
-        <Clock size={14} className="text-cyan-300" /> Log data lifecycle
-        <span className="ml-auto text-[10px] text-zinc-500">{workspace.log_retention_days || 30} day retention</span>
+      <summary className="cursor-pointer list-none flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <Clock size={14} className="text-[var(--accent-secondary)]" /> Log data lifecycle
+        <span className="ml-auto text-[10px] text-[var(--text-muted)]">{workspace.log_retention_days || 30} day retention</span>
       </summary>
       <form onSubmit={save} className="mt-3 flex flex-wrap items-end gap-3 text-xs">
         <label className="space-y-1">
-          <span className="block text-zinc-400">Retain stored log bodies (1–365 days)</span>
+          <span className="block text-[var(--text-secondary)]">Retain stored log bodies (1–365 days)</span>
           <input
             type="number"
             className="input-field w-36"
@@ -501,10 +501,10 @@ function WorkspaceRetentionSettings({ workspace, onUpdated }: { workspace: Works
           {saving ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
           Save retention
         </button>
-        {!canManage && <span className="text-zinc-500">Only workspace owners and admins can change this.</span>}
+        {!canManage && <span className="text-[var(--text-muted)]">Only workspace owners and admins can change this.</span>}
       </form>
-      <p className="mt-2 text-[10px] text-zinc-500">Incident summaries, fix history, and audit records remain after log bodies expire.</p>
-      {message && <p className="mt-2 text-[10px] text-zinc-300">{message}</p>}
+      <p className="mt-2 text-[10px] text-[var(--text-muted)]">Incident summaries, fix history, and audit records remain after log bodies expire.</p>
+      {message && <p className="mt-2 text-[10px] text-[var(--text-secondary)]">{message}</p>}
     </details>
   );
 }
@@ -558,46 +558,46 @@ function LogProviderSettings({
   return (
     <details className="glass-card p-6 md:col-span-2">
       <summary className="cursor-pointer list-none flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex-center"><Terminal size={19} className="text-emerald-300" /></div>
+        <div className="w-10 h-10 rounded-full bg-[var(--success)]/15 flex-center"><Terminal size={19} className="text-[var(--success)]" /></div>
         <div>
-          <h3 className="text-lg font-medium text-white">Production log sources</h3>
-          <p className="text-xs text-zinc-400">Vercel and Railway tokens are encrypted and never returned.</p>
+          <h3 className="text-lg font-medium text-[var(--text-primary)]">Production log sources</h3>
+          <p className="text-xs text-[var(--text-secondary)]">Vercel and Railway tokens are encrypted and never returned.</p>
         </div>
         <span className="ml-auto badge badge-neutral text-[10px]">{connections.length} connected</span>
       </summary>
       <form onSubmit={handleSave} className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
         <label className="space-y-1">
-          <span className="text-zinc-400">Provider</span>
-          <select className="input-field bg-zinc-900" value={provider} onChange={(event) => setProvider(event.target.value as 'vercel' | 'railway')}>
+          <span className="text-[var(--text-secondary)]">Provider</span>
+          <select className="input-field bg-[var(--bg-tertiary)]" value={provider} onChange={(event) => setProvider(event.target.value as 'vercel' | 'railway')}>
             <option value="vercel">Vercel</option>
             <option value="railway">Railway</option>
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-zinc-400">Connection name</span>
+          <span className="text-[var(--text-secondary)]">Connection name</span>
           <input className="input-field" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Production API" maxLength={120} />
         </label>
         <label className="space-y-1 sm:col-span-2">
-          <span className="text-zinc-400">Access token (write-only)</span>
+          <span className="text-[var(--text-secondary)]">Access token (write-only)</span>
           <input className="input-field font-mono" type="password" autoComplete="new-password" value={providerToken} onChange={(event) => setProviderToken(event.target.value)} required minLength={8} maxLength={4096} />
         </label>
         <label className="space-y-1">
-          <span className="text-zinc-400">{provider === 'vercel' ? 'Vercel project ID' : 'Railway project ID (optional)'}</span>
+          <span className="text-[var(--text-secondary)]">{provider === 'vercel' ? 'Vercel project ID' : 'Railway project ID (optional)'}</span>
           <input className="input-field font-mono" value={providerProjectId} onChange={(event) => setProviderProjectId(event.target.value)} required={provider === 'vercel'} maxLength={256} />
         </label>
         <label className="space-y-1">
-          <span className="text-zinc-400">Deployment ID</span>
+          <span className="text-[var(--text-secondary)]">Deployment ID</span>
           <input className="input-field font-mono" value={deploymentId} onChange={(event) => setDeploymentId(event.target.value)} required maxLength={256} />
         </label>
         {provider === 'vercel' ? (
           <label className="space-y-1">
-            <span className="text-zinc-400">Team ID (optional)</span>
+            <span className="text-[var(--text-secondary)]">Team ID (optional)</span>
             <input className="input-field font-mono" value={scopeId} onChange={(event) => setScopeId(event.target.value)} maxLength={256} />
           </label>
         ) : (
           <label className="space-y-1">
-            <span className="text-zinc-400">Token type</span>
-            <select className="input-field bg-zinc-900" value={tokenKind} onChange={(event) => setTokenKind(event.target.value as 'bearer' | 'project_token')}>
+            <span className="text-[var(--text-secondary)]">Token type</span>
+            <select className="input-field bg-[var(--bg-tertiary)]" value={tokenKind} onChange={(event) => setTokenKind(event.target.value as 'bearer' | 'project_token')}>
               <option value="project_token">Project access token (recommended)</option>
               <option value="bearer">Account/workspace bearer token</option>
             </select>
@@ -608,9 +608,9 @@ function LogProviderSettings({
             {saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
             {saving ? 'Encrypting…' : 'Save log source'}
           </button>
-          <span className="text-[10px] text-zinc-500">Read-only log access is recommended.</span>
+          <span className="text-[10px] text-[var(--text-muted)]">Read-only log access is recommended.</span>
         </div>
-        {error && <p className="sm:col-span-2 text-red-300">{error}</p>}
+        {error && <p className="sm:col-span-2 text-[var(--error)]">{error}</p>}
       </form>
       {connections.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -693,11 +693,11 @@ function ProjectCard({
     <div className="glass-card p-6 flex flex-col group justify-between">
       <div>
         <div className="flex-between mb-4">
-          <div className="w-10 h-10 rounded-lg bg-[#ffffff1a] border border-[#ffffff26] flex-center">
-            <Box size={20} className="text-white" />
+          <div className="w-10 h-10 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-light)] flex-center">
+            <Box size={20} className="text-[var(--text-primary)]" />
           </div>
           {loading ? (
-            <Loader2 size={14} className="animate-spin text-zinc-500" />
+            <Loader2 size={14} className="animate-spin text-[var(--text-muted)]" />
           ) : repoConn ? (
             repoConn.status === 'connected' ? (
               <span className="badge badge-success flex items-center gap-1 text-xs">
@@ -711,28 +711,28 @@ function ProjectCard({
           )}
         </div>
 
-        <h3 className="text-xl font-medium text-white mb-2 group-hover:text-indigo-400 transition-colors">
+        <h3 className="text-xl font-medium text-[var(--text-primary)] mb-2 group-hover:text-[var(--accent-primary)] transition-colors">
           {project.name}
         </h3>
-        <p className="text-sm text-zinc-400 mb-6 line-clamp-2">
+        <p className="text-sm text-[var(--text-secondary)] mb-6 line-clamp-2">
           {project.description || 'No description provided.'}
         </p>
 
         {repoConn && (
-          <div className="bg-[#ffffff05] rounded-lg p-3 border border-[#ffffff0a] mb-6 text-xs">
-            <div className="flex items-center justify-between text-zinc-300 mb-1.5">
-              <span className="font-semibold text-zinc-400">Repository:</span>
+          <div className="bg-[var(--bg-tertiary)] rounded-lg p-3 border border-[var(--border-light)] mb-6 text-xs">
+            <div className="flex items-center justify-between text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold text-[var(--text-secondary)]">Repository:</span>
               <a
                 href={repoConn.html_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-indigo-400 hover:underline flex items-center gap-1"
+                className="text-[var(--accent-primary)] hover:underline flex items-center gap-1"
               >
                 {repoConn.full_name} <ExternalLink size={12} />
               </a>
             </div>
-            <div className="flex items-center justify-between text-zinc-300">
-              <span className="font-semibold text-zinc-400">Branch:</span>
+            <div className="flex items-center justify-between text-[var(--text-secondary)]">
+              <span className="font-semibold text-[var(--text-secondary)]">Branch:</span>
               <span className="font-mono flex items-center gap-1"><GitBranch size={12} /> {repoConn.selected_branch}</span>
             </div>
             {latestJob && (
@@ -755,21 +755,21 @@ function ProjectCard({
         )}
       </div>
 
-      <div className="pt-4 border-t border-[var(--border-light)] flex items-center justify-between text-xs text-zinc-500 font-mono mt-auto">
+      <div className="pt-4 border-t border-[var(--border-light)] flex items-center justify-between text-xs text-[var(--text-muted)] font-mono mt-auto">
         <span className="flex items-center gap-1"><Clock size={12} /> {new Date(project.created_at).toLocaleDateString()}</span>
         {repoConn?.last_indexed_commit_sha && (
-          <span className="font-mono text-zinc-400">SHA: {repoConn.last_indexed_commit_sha.substring(0, 7)}</span>
+          <span className="font-mono text-[var(--text-secondary)]">SHA: {repoConn.last_indexed_commit_sha.substring(0, 7)}</span>
         )}
       </div>
-      <details className="mt-3 rounded border border-red-400/15 bg-red-500/5 p-2 text-xs">
-        <summary className="cursor-pointer list-none flex items-center gap-2 text-red-300">
+      <details className="mt-3 rounded border border-[var(--error)]/15 bg-[var(--error)]/5 p-2 text-xs">
+        <summary className="cursor-pointer list-none flex items-center gap-2 text-[var(--error)]">
           <Trash2 size={13} /> Delete project data
         </summary>
-        <p className="mt-2 text-[10px] leading-4 text-zinc-500">
+        <p className="mt-2 text-[10px] leading-4 text-[var(--text-muted)]">
           Permanently deletes this project, indexed code, logs, incidents, approvals, and provider associations. Workspace audit history keeps only the project name and ID.
         </p>
         <label className="mt-2 block space-y-1">
-          <span className="text-[10px] text-zinc-400">Type <strong className="font-mono text-zinc-200">{project.name}</strong> to confirm</span>
+          <span className="text-[10px] text-[var(--text-secondary)]">Type <strong className="font-mono text-[var(--text-primary)]">{project.name}</strong> to confirm</span>
           <input
             className="input-field py-1.5 text-xs"
             value={deleteConfirmation}
@@ -780,14 +780,14 @@ function ProjectCard({
         </label>
         <button
           type="button"
-          className="btn mt-2 w-full border border-red-400/25 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+          className="btn mt-2 w-full border border-[var(--error)]/25 bg-[var(--error)]/10 text-[var(--error)] hover:bg-[var(--error)]/20"
           onClick={handleDelete}
           disabled={deleting || deleteConfirmation !== project.name}
         >
           {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
           {deleting ? 'Deleting…' : 'Permanently delete'}
         </button>
-        {deleteError && <p className="mt-2 text-red-300">{deleteError}</p>}
+        {deleteError && <p className="mt-2 text-[var(--error)]">{deleteError}</p>}
       </details>
     </div>
   );
@@ -835,35 +835,35 @@ function DeploymentReadinessPanel({ workspaceId, projectId }: { workspaceId: str
   }
 
   return (
-    <details className="rounded-lg border border-cyan-400/20 bg-cyan-500/5 p-3 mb-5">
-      <summary className="flex items-center gap-2 text-xs font-semibold text-cyan-100 cursor-pointer list-none">
+    <details className="rounded-lg border border-[var(--accent-secondary)]/20 bg-[var(--accent-secondary)]/5 p-3 mb-5">
+      <summary className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-secondary)] cursor-pointer list-none">
         <Container size={14} /> Deployment readiness
-        <span className="ml-auto text-[10px] uppercase tracking-wide text-zinc-500">Pinned repo analysis</span>
+        <span className="ml-auto text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Pinned repo analysis</span>
       </summary>
       <div className="mt-3 space-y-3">
         <button type="button" className="btn btn-secondary w-full" onClick={scan} disabled={running}>
           {running ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
           {running ? 'Scanning repository…' : 'Run readiness scan'}
         </button>
-        {error && <p className="text-xs text-red-300">{error}</p>}
+        {error && <p className="text-xs text-[var(--error)]">{error}</p>}
         {report && (
           <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between rounded bg-black/20 p-2">
-              <span className="text-zinc-300">{report.stack.framework} · {report.stack.root}</span>
-              <span className={`badge ${report.ready ? 'badge-success' : 'text-amber-300 bg-amber-500/10'}`}>{report.score}/100</span>
+            <div className="flex items-center justify-between rounded bg-[var(--bg-tertiary)]/20 p-2">
+              <span className="text-[var(--text-secondary)]">{report.stack.framework} · {report.stack.root}</span>
+              <span className={`badge ${report.ready ? 'badge-success' : 'text-[var(--warning)] bg-[var(--warning)]/10'}`}>{report.score}/100</span>
             </div>
             {report.findings.length === 0 ? (
-              <p className="text-emerald-300">No common deployment blockers detected.</p>
+              <p className="text-[var(--success)]">No common deployment blockers detected.</p>
             ) : (
               <div className="space-y-1.5">
                 {report.findings.map((finding) => (
-                  <div key={finding.code} className="rounded border border-white/5 bg-black/15 p-2">
+                  <div key={finding.code} className="rounded border border-[var(--border-light)]/5 bg-[var(--bg-tertiary)]/15 p-2">
                     <div className="flex items-center gap-2">
-                      <span className={finding.severity === 'blocker' ? 'text-red-300' : 'text-amber-300'}>{finding.severity.toUpperCase()}</span>
-                      <span className="text-zinc-200">{finding.title}</span>
+                      <span className={finding.severity === 'blocker' ? 'text-[var(--error)]' : 'text-[var(--warning)]'}>{finding.severity.toUpperCase()}</span>
+                      <span className="text-[var(--text-primary)]">{finding.title}</span>
                     </div>
-                    <p className="mt-1 text-zinc-500">{finding.detail} {finding.remediation}</p>
-                    {finding.citations.length > 0 && <p className="mt-1 font-mono text-[9px] text-cyan-400">{finding.citations.join(', ')}</p>}
+                    <p className="mt-1 text-[var(--text-muted)]">{finding.detail} {finding.remediation}</p>
+                    {finding.citations.length > 0 && <p className="mt-1 font-mono text-[9px] text-[var(--accent-secondary)]">{finding.citations.join(', ')}</p>}
                   </div>
                 ))}
               </div>
@@ -880,12 +880,12 @@ function DeploymentReadinessPanel({ workspaceId, projectId }: { workspaceId: str
         {generated && (
           <div className="space-y-2 text-[10px]">
             <div className="flex items-center justify-between">
-              <span className="text-zinc-400">Generated from {generated.commit_sha.slice(0, 8)}; secrets omitted</span>
-              <button type="button" className="text-indigo-300 hover:text-indigo-200 flex items-center gap-1" onClick={copyBundle}><Clipboard size={11} /> Copy all</button>
+              <span className="text-[var(--text-secondary)]">Generated from {generated.commit_sha.slice(0, 8)}; secrets omitted</span>
+              <button type="button" className="text-[var(--accent-primary-hover)] hover:text-[var(--accent-primary)] flex items-center gap-1" onClick={copyBundle}><Clipboard size={11} /> Copy all</button>
             </div>
-            <details className="rounded bg-black/30 p-2"><summary className="cursor-pointer text-zinc-300">Dockerfile</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-zinc-400">{generated.dockerfile}</pre></details>
-            <details className="rounded bg-black/30 p-2"><summary className="cursor-pointer text-zinc-300">compose.yaml</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-zinc-400">{generated.compose_yaml}</pre></details>
-            <details className="rounded bg-black/30 p-2"><summary className="cursor-pointer text-zinc-300">.env.example</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-zinc-400">{generated.env_example}</pre></details>
+            <details className="rounded bg-[var(--bg-tertiary)]/30 p-2"><summary className="cursor-pointer text-[var(--text-secondary)]">Dockerfile</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-[var(--text-secondary)]">{generated.dockerfile}</pre></details>
+            <details className="rounded bg-[var(--bg-tertiary)]/30 p-2"><summary className="cursor-pointer text-[var(--text-secondary)]">compose.yaml</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-[var(--text-secondary)]">{generated.compose_yaml}</pre></details>
+            <details className="rounded bg-[var(--bg-tertiary)]/30 p-2"><summary className="cursor-pointer text-[var(--text-secondary)]">.env.example</summary><pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap text-[var(--text-secondary)]">{generated.env_example}</pre></details>
           </div>
         )}
       </div>
@@ -920,8 +920,8 @@ function ProjectQAPanel({ workspaceId, projectId }: { workspaceId: string; proje
   }
 
   return (
-    <div className="rounded-lg border border-indigo-400/20 bg-indigo-500/5 p-3 mb-5">
-      <div className="flex items-center gap-2 text-xs font-semibold text-indigo-200 mb-2">
+    <div className="rounded-lg border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5 p-3 mb-5">
+      <div className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-primary-hover)] mb-2">
         <ShieldCheck size={14} /> Ask indexed project context
       </div>
       <form onSubmit={handleAsk} className="flex gap-2">
@@ -945,30 +945,30 @@ function ProjectQAPanel({ workspaceId, projectId }: { workspaceId: string; proje
       </form>
 
       {error && (
-        <p className="mt-2 text-xs text-red-300 flex items-start gap-1.5">
+        <p className="mt-2 text-xs text-[var(--error)] flex items-start gap-1.5">
           <AlertCircle size={13} className="shrink-0 mt-0.5" /> {error}
         </p>
       )}
 
       {answer && (
-        <div className="mt-3 pt-3 border-t border-indigo-300/10">
+        <div className="mt-3 pt-3 border-t border-[var(--accent-primary)]/10">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] uppercase tracking-wide text-zinc-500">Grounded answer</span>
+            <span className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">Grounded answer</span>
             <span className={`badge text-[10px] ${answer.enough_context ? 'badge-success' : 'badge-neutral'}`}>
               {answer.confidence} confidence
             </span>
           </div>
-          <p className="text-xs leading-5 text-zinc-300 whitespace-pre-wrap">{answer.answer}</p>
+          <p className="text-xs leading-5 text-[var(--text-secondary)] whitespace-pre-wrap">{answer.answer}</p>
           {answer.sources.length > 0 && (
             <div className="mt-3 space-y-1.5">
-              <span className="text-[11px] text-zinc-500">Evidence</span>
+              <span className="text-[11px] text-[var(--text-muted)]">Evidence</span>
               {answer.sources.slice(0, 5).map((source) => (
-                <div key={source.id} className="flex items-center justify-between gap-2 text-[11px] text-zinc-400 bg-black/20 rounded px-2 py-1.5">
+                <div key={source.id} className="flex items-center justify-between gap-2 text-[11px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)]/20 rounded px-2 py-1.5">
                   <span className="flex items-center gap-1.5 min-w-0">
-                    <FileCode2 size={12} className="shrink-0 text-indigo-300" />
+                    <FileCode2 size={12} className="shrink-0 text-[var(--accent-primary-hover)]" />
                     <span className="truncate" title={source.citation}>{source.citation}</span>
                   </span>
-                  <span className="font-mono text-zinc-600">{Math.round(source.score * 100)}%</span>
+                  <span className="font-mono text-[var(--text-muted)]">{Math.round(source.score * 100)}%</span>
                 </div>
               ))}
             </div>
@@ -1041,7 +1041,7 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
         projectId,
         proposal.approval_id,
         decision,
-        decision === 'approve' ? 'Reviewed in OpsPilot incident cockpit' : 'Rejected from OpsPilot incident cockpit'
+        decision === 'approve' ? 'Reviewed in Archiatros incident cockpit' : 'Rejected from Archiatros incident cockpit'
       );
       setDecisionResult(response);
     } catch (requestError) {
@@ -1052,17 +1052,17 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
   }
 
   return (
-    <details className="rounded-lg border border-amber-400/20 bg-amber-500/5 p-3 mb-5 group/incident">
-      <summary className="flex items-center gap-2 text-xs font-semibold text-amber-100 cursor-pointer list-none">
+    <details className="rounded-lg border border-[var(--warning)]/20 bg-[var(--warning)]/5 p-3 mb-5 group/incident">
+      <summary className="flex items-center gap-2 text-xs font-semibold text-[var(--warning)] cursor-pointer list-none">
         <Terminal size={14} /> Analyze production logs
-        <span className="ml-auto text-[10px] uppercase tracking-wide text-zinc-500">Redacted before AI</span>
+        <span className="ml-auto text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Redacted before AI</span>
       </summary>
       <form onSubmit={handleAnalyze} className="mt-3 space-y-2">
         <div className="flex items-center gap-2">
-          <label htmlFor={`source-${projectId}`} className="text-[11px] text-zinc-500">Source</label>
+          <label htmlFor={`source-${projectId}`} className="text-[11px] text-[var(--text-muted)]">Source</label>
           <select
             id={`source-${projectId}`}
-            className="input-field py-1 px-2 text-xs bg-zinc-900"
+            className="input-field py-1 px-2 text-xs bg-[var(--bg-tertiary)]"
             value={source}
             onChange={(event) => setSource(event.target.value)}
             disabled={analyzing}
@@ -1073,7 +1073,7 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
             ))}
           </select>
           {source !== 'manual' && (
-            <select className="input-field py-1 px-2 text-xs bg-zinc-900" value={logKind} onChange={(event) => setLogKind(event.target.value as 'runtime' | 'build')} disabled={analyzing}>
+            <select className="input-field py-1 px-2 text-xs bg-[var(--bg-tertiary)]" value={logKind} onChange={(event) => setLogKind(event.target.value as 'runtime' | 'build')} disabled={analyzing}>
               <option value="runtime">Runtime logs</option>
               <option value="build">Build logs</option>
             </select>
@@ -1090,7 +1090,7 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
             aria-label="Logs to analyze"
           />
         ) : (
-          <p className="rounded bg-black/20 p-2 text-[11px] text-zinc-400">OpsPilot will fetch up to 300 lines server-to-server, redact secrets, and create an incident. Raw provider logs are not sent back to this browser.</p>
+          <p className="rounded bg-[var(--bg-tertiary)]/20 p-2 text-[11px] text-[var(--text-secondary)]">Archiatros will fetch up to 300 lines server-to-server, redact secrets, and create an incident. Raw provider logs are not sent back to this browser.</p>
         )}
         <button type="submit" className="btn btn-primary w-full" disabled={analyzing || (source === 'manual' && !logs.trim())}>
           {analyzing ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
@@ -1099,28 +1099,28 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
       </form>
 
       {error && (
-        <p className="mt-2 text-xs text-red-300 flex items-start gap-1.5">
+        <p className="mt-2 text-xs text-[var(--error)] flex items-start gap-1.5">
           <AlertCircle size={13} className="shrink-0 mt-0.5" /> {error}
         </p>
       )}
 
       {result && (
-        <div className="mt-3 pt-3 border-t border-amber-300/10 space-y-3 text-xs">
+        <div className="mt-3 pt-3 border-t border-[var(--warning)]/10 space-y-3 text-xs">
           <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold text-white truncate" title={result.analysis.title}>{result.analysis.title}</span>
-            <span className={`badge text-[10px] ${result.severity === 'critical' ? 'text-red-300 bg-red-500/10' : 'badge-neutral'}`}>
+            <span className="font-semibold text-[var(--text-primary)] truncate" title={result.analysis.title}>{result.analysis.title}</span>
+            <span className={`badge text-[10px] ${result.severity === 'critical' ? 'text-[var(--error)] bg-[var(--error)]/10' : 'badge-neutral'}`}>
               {result.severity}
             </span>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Probable root cause</p>
-            <p className="text-zinc-300 leading-5 whitespace-pre-wrap">{result.analysis.root_cause}</p>
+            <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">Probable root cause</p>
+            <p className="text-[var(--text-secondary)] leading-5 whitespace-pre-wrap">{result.analysis.root_cause}</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wide text-zinc-500 mb-1">Recommended next step</p>
-            <p className="text-zinc-300 leading-5 whitespace-pre-wrap">{result.analysis.fix_recommendation}</p>
+            <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mb-1">Recommended next step</p>
+            <p className="text-[var(--text-secondary)] leading-5 whitespace-pre-wrap">{result.analysis.fix_recommendation}</p>
           </div>
-          <div className="flex flex-wrap gap-2 text-[10px] text-zinc-500">
+          <div className="flex flex-wrap gap-2 text-[10px] text-[var(--text-muted)]">
             <span>Confidence: {result.analysis.confidence}</span>
             <span>•</span>
             <span>{result.redactions} secret value{result.redactions === 1 ? '' : 's'} redacted</span>
@@ -1130,9 +1130,9 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
           {result.evidence.length > 0 && (
             <div className="space-y-1">
               {result.evidence.slice(0, 5).map((item) => (
-                <div key={item.id} className="flex items-center justify-between bg-black/20 rounded px-2 py-1.5 text-[11px] text-zinc-400">
+                <div key={item.id} className="flex items-center justify-between bg-[var(--bg-tertiary)]/20 rounded px-2 py-1.5 text-[11px] text-[var(--text-secondary)]">
                   <span className="truncate" title={item.citation}>{item.citation}</span>
-                  <span className="font-mono text-zinc-600">{Math.round(item.score * 100)}%</span>
+                  <span className="font-mono text-[var(--text-muted)]">{Math.round(item.score * 100)}%</span>
                 </div>
               ))}
             </div>
@@ -1144,28 +1144,28 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
             </button>
           )}
           {proposal && (
-            <div className="rounded-lg border border-emerald-400/20 bg-emerald-500/5 p-3 space-y-2">
+            <div className="rounded-lg border border-[var(--success)]/20 bg-[var(--success)]/5 p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 font-semibold text-emerald-200">
+                <span className="flex items-center gap-1.5 font-semibold text-[var(--success)]">
                   <LockKeyhole size={13} /> Approval required
                 </span>
                 <span className="badge badge-neutral text-[10px]">No GitHub write yet</span>
               </div>
-              <p className="text-zinc-400 leading-5">
-                The diff is pinned to <span className="font-mono text-zinc-300">{proposal.base_commit_sha.slice(0, 8)}</span> and passed path, secret, and static checks.
+              <p className="text-[var(--text-secondary)] leading-5">
+                The diff is pinned to <span className="font-mono text-[var(--text-secondary)]">{proposal.base_commit_sha.slice(0, 8)}</span> and passed path, secret, and static checks.
               </p>
-              <pre className="max-h-56 overflow-auto rounded bg-black/40 p-2 text-[10px] leading-4 text-zinc-300 whitespace-pre-wrap">
+              <pre className="max-h-56 overflow-auto rounded bg-[var(--bg-tertiary)]/40 p-2 text-[10px] leading-4 text-[var(--text-secondary)] whitespace-pre-wrap">
                 {proposal.unified_diff}
               </pre>
-              <p className="text-[10px] text-amber-300">
+              <p className="text-[10px] text-[var(--warning)]">
                 Tests: {proposal.verification.tests.status.replace('_', ' ')} — {proposal.verification.tests.reason}. Approval can publish only a draft PR.
               </p>
               {!decisionResult && (
                 <>
-                  <label className="flex items-start gap-2 text-[11px] text-zinc-300 cursor-pointer">
+                  <label className="flex items-start gap-2 text-[11px] text-[var(--text-secondary)] cursor-pointer">
                     <input
                       type="checkbox"
-                      className="mt-0.5 accent-indigo-500"
+                      className="mt-0.5 accent-[var(--accent-primary)]"
                       checked={approvalConfirmed}
                       onChange={(event) => setApprovalConfirmed(event.target.checked)}
                       disabled={deciding}
@@ -1194,7 +1194,7 @@ function LogAnalysisPanel({ workspaceId, projectId, logProviders }: { workspaceI
                 </a>
               )}
               {decisionResult?.approval_status === 'rejected' && (
-                <p className="rounded bg-zinc-900/60 p-2 text-center text-zinc-400">Proposal rejected. No GitHub write occurred.</p>
+                <p className="rounded bg-[var(--bg-tertiary)]/60 p-2 text-center text-[var(--text-secondary)]">Proposal rejected. No GitHub write occurred.</p>
               )}
             </div>
           )}
@@ -1258,14 +1258,14 @@ function IncidentHistory({ workspaceId, projectId, refreshKey }: { workspaceId: 
   }
 
   return (
-    <div className="mt-4 pt-3 border-t border-amber-300/10">
+    <div className="mt-4 pt-3 border-t border-[var(--warning)]/10">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] font-semibold text-zinc-300">Incident timeline</span>
-        <button type="button" className="text-[10px] text-indigo-300 hover:text-indigo-200" onClick={loadHistory}>Refresh</button>
+        <span className="text-[11px] font-semibold text-[var(--text-secondary)]">Incident timeline</span>
+        <button type="button" className="text-[10px] text-[var(--accent-primary-hover)] hover:text-[var(--accent-primary)]" onClick={loadHistory}>Refresh</button>
       </div>
-      {loading && <p className="text-[11px] text-zinc-500">Loading durable incident state…</p>}
-      {error && <p className="text-[11px] text-red-300 mb-2">{error}</p>}
-      {!loading && incidents.length === 0 && <p className="text-[11px] text-zinc-500">No incidents yet.</p>}
+      {loading && <p className="text-[11px] text-[var(--text-muted)]">Loading durable incident state…</p>}
+      {error && <p className="text-[11px] text-[var(--error)] mb-2">{error}</p>}
+      {!loading && incidents.length === 0 && <p className="text-[11px] text-[var(--text-muted)]">No incidents yet.</p>}
       <div className="space-y-2">
         {incidents.slice(0, 8).map((item) => {
           const proposal = item.fix_proposal;
@@ -1273,30 +1273,30 @@ function IncidentHistory({ workspaceId, projectId, refreshKey }: { workspaceId: 
           const pending = approval?.status === 'pending';
           const prURL = proposal?.publish_result?.pr_url;
           return (
-            <details key={item.incident_id} className="rounded border border-white/10 bg-black/15 p-2 text-[11px]">
+            <details key={item.incident_id} className="rounded border border-[var(--border-light)]/10 bg-[var(--bg-tertiary)]/15 p-2 text-[11px]">
               <summary className="cursor-pointer list-none flex items-center gap-2">
-                <span className={`w-1.5 h-1.5 rounded-full ${item.severity === 'critical' ? 'bg-red-400' : item.severity === 'error' ? 'bg-amber-400' : 'bg-zinc-500'}`} />
-                <span className="truncate text-zinc-200" title={item.title}>{item.title}</span>
-                <span className="ml-auto text-zinc-600">{item.source} · {new Date(item.created_at).toLocaleString()}</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${item.severity === 'critical' ? 'bg-[var(--error)]' : item.severity === 'error' ? 'bg-[var(--warning)]' : 'bg-[var(--text-muted)]'}`} />
+                <span className="truncate text-[var(--text-primary)]" title={item.title}>{item.title}</span>
+                <span className="ml-auto text-[var(--text-muted)]">{item.source} · {new Date(item.created_at).toLocaleString()}</span>
               </summary>
-              <div className="mt-2 space-y-2 border-t border-white/5 pt-2">
-                <p className="text-zinc-400 whitespace-pre-wrap">{item.root_cause}</p>
+              <div className="mt-2 space-y-2 border-t border-[var(--border-light)]/5 pt-2">
+                <p className="text-[var(--text-secondary)] whitespace-pre-wrap">{item.root_cause}</p>
                 <div className="flex flex-wrap gap-1">
                   {item.analysis_workflow.steps.map((step) => (
                     <span key={`${item.incident_id}-${step.order}`} className="badge badge-neutral text-[9px]">{step.name}: {step.status}</span>
                   ))}
                 </div>
                 {proposal && (
-                  <div className="rounded border border-emerald-400/15 bg-emerald-500/5 p-2 space-y-2">
+                  <div className="rounded border border-[var(--success)]/15 bg-[var(--success)]/5 p-2 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-emerald-200">Fix {proposal.status.replaceAll('_', ' ')}</span>
-                      <span className="font-mono text-zinc-500">{proposal.base_commit_sha.slice(0, 8)}</span>
+                      <span className="font-semibold text-[var(--success)]">Fix {proposal.status.replaceAll('_', ' ')}</span>
+                      <span className="font-mono text-[var(--text-muted)]">{proposal.base_commit_sha.slice(0, 8)}</span>
                     </div>
-                    <pre className="max-h-44 overflow-auto rounded bg-black/40 p-2 text-[9px] leading-4 text-zinc-300 whitespace-pre-wrap">{proposal.unified_diff}</pre>
+                    <pre className="max-h-44 overflow-auto rounded bg-[var(--bg-tertiary)]/40 p-2 text-[9px] leading-4 text-[var(--text-secondary)] whitespace-pre-wrap">{proposal.unified_diff}</pre>
                     {pending && approval && (
                       <>
-                        <label className="flex items-start gap-2 text-zinc-300">
-                          <input type="checkbox" className="mt-0.5 accent-indigo-500" checked={confirmedApproval === approval.approval_id} onChange={(event) => setConfirmedApproval(event.target.checked ? approval.approval_id : '')} />
+                        <label className="flex items-start gap-2 text-[var(--text-secondary)]">
+                          <input type="checkbox" className="mt-0.5 accent-[var(--accent-primary)]" checked={confirmedApproval === approval.approval_id} onChange={(event) => setConfirmedApproval(event.target.checked ? approval.approval_id : '')} />
                           <span>I reviewed this exact persisted diff and approve a new draft PR branch only.</span>
                         </label>
                         <div className="grid grid-cols-2 gap-2">
@@ -1310,7 +1310,7 @@ function IncidentHistory({ workspaceId, projectId, refreshKey }: { workspaceId: 
                     {prURL && (
                       <a className="btn btn-primary w-full" href={prURL} target="_blank" rel="noreferrer"><ExternalLink size={12} /> Open draft PR #{proposal.publish_result.pr_number}</a>
                     )}
-                    {approval && !pending && !prURL && <p className="text-zinc-500">Approval: {approval.status}</p>}
+                    {approval && !pending && !prURL && <p className="text-[var(--text-muted)]">Approval: {approval.status}</p>}
                   </div>
                 )}
               </div>

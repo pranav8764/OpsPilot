@@ -24,7 +24,7 @@ export default function SyncUser() {
         });
         setSynced(true);
       } catch (error) {
-        console.error('Failed to sync user with OpsPilot API:', error);
+        console.error('Failed to sync user with Archiatros API:', error);
       }
     }
 

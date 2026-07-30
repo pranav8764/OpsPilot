@@ -1,39 +1,54 @@
 import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
-import { ArrowRight, Terminal, Bot, Shield, Zap } from "lucide-react";
+import { ArrowRight, Terminal, Eye, Shield, Zap, Construction, Sparkles } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default async function LandingPage() {
   const { userId } = await auth();
 
   return (
-    <div className="page-wrapper relative">
-      {/* Background glowing effects */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-indigo-600/20 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute top-[20%] right-[-10%] w-[40%] h-[40%] bg-pink-600/10 rounded-full blur-[100px] pointer-events-none" />
+    <div className="page-wrapper relative bg-[var(--bg-primary)]">
+      {/* Soft pastel ambient wash — a single restrained bloom per side, not a dense field */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div
+          className="absolute top-[-15%] left-[-10%] w-[50%] h-[50%] rounded-full blur-[140px]"
+          style={{ background: "var(--accent-primary)", opacity: 0.14 }}
+        />
+        <div
+          className="absolute bottom-[-20%] right-[-10%] w-[45%] h-[45%] rounded-full blur-[140px]"
+          style={{ background: "var(--accent-secondary)", opacity: 0.12 }}
+        />
+      </div>
 
       {/* Header */}
       <header className="container py-6 flex-between relative z-10">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-gradient-to-br from-indigo-500 to-pink-500 flex-center">
-            <Bot size={20} className="text-white" />
-          </div>
-          <span className="font-display font-bold text-xl tracking-tight">OpsPilot</span>
+          <span className="brand-medallion">
+            <Eye size={18} />
+          </span>
+          <span
+            className="font-semibold text-xl tracking-wide"
+            style={{ fontFamily: "var(--font-serif)" }}
+          >
+            Archiatros
+          </span>
         </div>
 
         <nav className="flex items-center gap-2 sm:gap-6">
-          <Link href="#features" className="hidden sm:inline text-sm font-medium text-zinc-400 hover:text-white transition-colors">Features</Link>
-          <Link href="/docs" className="hidden sm:inline text-sm font-medium text-zinc-400 hover:text-white transition-colors">Docs</Link>
+          <Link href="#features" className="hidden sm:inline text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">Features</Link>
+          <Link href="/docs" className="hidden sm:inline text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">Docs</Link>
+          <ThemeToggle />
           {userId ? (
-            <div className="flex items-center gap-4">
-              <Link href="/dashboard" className="btn btn-secondary">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Link href="/dashboard" className="hidden sm:inline-flex btn btn-secondary">
                 Go to Dashboard
               </Link>
               <UserButton />
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <Link href="/sign-in" className="btn btn-ghost">Sign In</Link>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link href="/sign-in" className="hidden sm:inline-flex btn btn-ghost">Sign In</Link>
               <Link href="/sign-up" className="btn btn-primary">
                 Get Started
               </Link>
@@ -45,15 +60,18 @@ export default async function LandingPage() {
       {/* Hero Section */}
       <main className="main-content flex flex-col items-center justify-center text-center mt-12 relative z-10">
         <div className="badge badge-neutral gap-2 mb-8 animate-fade-in">
-          <span className="text-emerald-400">Live</span><span>Evidence-backed incident-to-fix workflows</span>
+          <span style={{ color: "var(--success)" }}>Live</span><span>Evidence-backed incident-to-fix workflows</span>
         </div>
 
-        <h1 className="text-5xl md:text-7xl font-bold max-w-4xl leading-tight mb-6 animate-fade-in animate-delay-1">
-          Turn production evidence into a <span className="text-gradient-accent">reviewed fix</span>
+        <h1
+          className="text-5xl md:text-7xl font-bold max-w-4xl leading-tight mb-6 animate-fade-in animate-delay-1"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          The Oracle Sees Your Incidents <span className="text-gradient-accent">Before You Do.</span>
         </h1>
 
-        <p className="text-xl text-zinc-400 max-w-2xl mb-10 animate-fade-in animate-delay-2">
-          OpsPilot connects repository context with redacted runtime logs, proposes a bounded patch, verifies it in an isolated sandbox, and opens a draft FIX pull request only after human approval.
+        <p className="text-xl max-w-2xl mb-10 animate-fade-in animate-delay-2" style={{ color: "var(--text-secondary)" }}>
+          Archiatros — Greek for chief physician — diagnoses production incidents in seconds and proposes a verified fix pull request, so on-call stops meaning 3am guesswork.
         </p>
 
         <div className="flex flex-wrap justify-center gap-4 animate-fade-in animate-delay-3">
@@ -68,31 +86,31 @@ export default async function LandingPage() {
         {/* Feature grid */}
         <div id="features" className="container mt-32 grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in scroll-mt-8" style={{ animationDelay: '400ms' }}>
           <div className="glass-card p-8 text-left">
-            <div className="w-12 h-12 rounded-lg bg-indigo-500/20 flex-center mb-6">
-              <Terminal size={24} className="text-indigo-400" />
+            <div className="w-12 h-12 rounded-lg bg-[var(--accent-primary)]/20 flex-center mb-6">
+              <Terminal size={24} className="text-[var(--accent-primary-hover)]" />
             </div>
-            <h3 className="text-xl mb-3 text-white">Smart Repositories</h3>
-            <p className="text-zinc-400 text-sm">
-              Connect GitHub repositories. OpsPilot indexes pinned commits and answers with file-and-line evidence.
+            <h3 className="text-xl mb-3">Smart Repositories</h3>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Connect GitHub repositories. Archiatros indexes pinned commits and answers with file-and-line evidence.
             </p>
           </div>
 
           <div className="glass-card p-8 text-left">
-            <div className="w-12 h-12 rounded-lg bg-pink-500/20 flex-center mb-6">
-              <Zap size={24} className="text-pink-400" />
+            <div className="w-12 h-12 rounded-lg bg-[var(--accent-secondary)]/20 flex-center mb-6">
+              <Zap size={24} className="text-[var(--accent-secondary)]" />
             </div>
-            <h3 className="text-xl mb-3 text-white">Agentic Automation</h3>
-            <p className="text-zinc-400 text-sm">
+            <h3 className="text-xl mb-3">Agentic Automation</h3>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
               Collect Vercel or Railway logs, redact secrets, verify a targeted patch, and open an approval-gated draft PR.
             </p>
           </div>
 
           <div className="glass-card p-8 text-left">
-            <div className="w-12 h-12 rounded-lg bg-emerald-500/20 flex-center mb-6">
-              <Shield size={24} className="text-emerald-400" />
+            <div className="w-12 h-12 rounded-lg bg-[var(--accent-gold)]/20 flex-center mb-6">
+              <Shield size={24} className="text-[var(--accent-gold)]" />
             </div>
-            <h3 className="text-xl mb-3 text-white">Controlled by Design</h3>
-            <p className="text-zinc-400 text-sm">
+            <h3 className="text-xl mb-3">Controlled by Design</h3>
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
               Built with workspace RBAC, encrypted provider credentials, immutable approvals, and isolated test sandboxes.
             </p>
           </div>
@@ -102,7 +120,7 @@ export default async function LandingPage() {
           <div className="max-w-3xl mx-auto mb-12">
             <div className="badge badge-neutral mb-4">Guardrailed workflow</div>
             <h2 className="text-3xl md:text-5xl font-bold mb-4">From signal to draft PR, with evidence at every step</h2>
-            <p className="text-zinc-400 text-lg">
+            <p className="text-lg" style={{ color: "var(--text-secondary)" }}>
               The agent can investigate and prepare a fix. It cannot merge, deploy, roll back, or run an unrestricted cloud shell.
             </p>
           </div>
@@ -116,9 +134,9 @@ export default async function LandingPage() {
               ["06", "Approve", "Revalidate hashes, then create a new branch and draft PR after approval."],
             ].map(([number, title, detail]) => (
               <li key={number} className="glass-card p-6">
-                <span className="text-xs font-semibold tracking-[0.2em] text-indigo-400">{number}</span>
+                <span className="text-xs font-semibold tracking-[0.2em] text-[var(--accent-secondary)]">{number}</span>
                 <h3 className="text-lg mt-3 mb-2">{title}</h3>
-                <p className="text-sm text-zinc-400">{detail}</p>
+                <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{detail}</p>
               </li>
             ))}
           </ol>
@@ -129,14 +147,21 @@ export default async function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-[#ffffff1a] py-8 mt-20 relative z-10">
-        <div className="container flex-between">
-          <div className="text-zinc-500 text-sm">
-            &copy; 2026 OpsPilot. All rights reserved.
+      <footer className="py-8 mt-20 relative z-10" style={{ borderTop: "1px solid var(--border-light)" }}>
+        <div className="container flex-between flex-wrap gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+              &copy; 2026 Archiatros. All rights reserved.
+            </span>
+            <span className="under-construction-badge">
+              <Construction size={12} />
+              Calibrating
+              <Sparkles size={12} />
+            </span>
           </div>
-          <div className="flex gap-4 text-sm text-zinc-500">
-            <Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link>
-            <Link href="/terms" className="hover:text-white transition-colors">Terms</Link>
+          <div className="flex gap-4 text-sm" style={{ color: "var(--text-muted)" }}>
+            <Link href="/privacy" className="hover:text-[var(--text-primary)] transition-colors">Privacy</Link>
+            <Link href="/terms" className="hover:text-[var(--text-primary)] transition-colors">Terms</Link>
           </div>
         </div>
       </footer>
