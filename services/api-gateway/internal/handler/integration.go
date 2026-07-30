@@ -138,6 +138,42 @@ func (h *IntegrationHandler) ListLogProviders(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, map[string]any{"connections": connections})
 }
 
+// ListConnectedRepositories returns every repository connection visible to the
+// caller. Scoped to one workspace when the path carries a workspace id, otherwise
+// across every workspace the caller belongs to.
+// GET /api/v1/repositories
+// GET /api/v1/workspaces/{workspaceId}/repositories
+func (h *IntegrationHandler) ListConnectedRepositories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, err := h.resolveUserID(r)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "could not identify user")
+		return
+	}
+	// Empty on the cross-workspace route: extractWorkspaceID scans for a
+	// "workspaces" segment and returns "" when there is none. The integration
+	// service then scopes by membership instead of by an explicit id.
+	workspaceID := extractWorkspaceID(r.URL.Path)
+
+	resp, err := h.integrationClient.ListRepositoryConnections(r.Context(), &integrationv1.ListRepositoryConnectionsRequest{
+		UserId:      userID,
+		WorkspaceId: workspaceID,
+	})
+	if err != nil {
+		h.logger.Error("list repository connections failed", "error", err, "workspace_id", workspaceID)
+		writeError(w, http.StatusBadGateway, "REPOSITORY_LIST_FAILED", "failed to list connected repositories")
+		return
+	}
+	connections := resp.Connections
+	if connections == nil {
+		connections = []*integrationv1.RepositoryConnectionSummary{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"connections": connections})
+}
+
 func (h *IntegrationHandler) resolveUserID(r *http.Request) (string, error) {
 	token, _ := r.Context().Value(middleware.TokenKey).(string)
 	resp, err := h.authClient.ValidateToken(r.Context(), &authv1.ValidateTokenRequest{Token: token})

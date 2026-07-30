@@ -44,6 +44,7 @@ import {
   WorkspaceUsageSummary,
   getWorkspaceUsage
 } from '@/lib/api';
+import { ingestionBadge } from '@/lib/ingestion';
 
 const GithubIcon = ({ size = 20, className = "" }: { size?: number; className?: string }) => (
   <svg
@@ -87,6 +88,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [startingInstall, setStartingInstall] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [logProviders, setLogProviders] = useState<LogProviderConnection[]>([]);
   const [usage, setUsage] = useState<WorkspaceUsageSummary | null>(null);
 
@@ -170,9 +172,10 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
     if (!newProjectName.trim()) return;
 
     setIsCreating(true);
+    setCreateError(null);
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) throw new Error('Sign in again before creating a project.');
 
       // 1. Create project
       const res = await createProject(token, workspaceId, {
@@ -182,7 +185,8 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
 
       const newProj = res.project;
 
-      // 2. Attach repository if selected
+      // 2. Attach repository if selected. A failure here leaves a project with
+      // no repository, so it must surface instead of only reaching the console.
       if (selectedRepo) {
         try {
           await attachRepository(token, workspaceId, newProj.id, {
@@ -199,6 +203,10 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
           });
         } catch (attachErr) {
           console.error('Error attaching repository:', attachErr);
+          setCreateError(
+            `Project "${newProj.name}" was created, but the repository could not be attached: ` +
+            (attachErr instanceof Error ? attachErr.message : 'unknown error')
+          );
         }
       }
 
@@ -212,6 +220,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
       setProjects(projRes.projects || []);
     } catch (error) {
       console.error('Error creating project:', error);
+      setCreateError(error instanceof Error ? error.message : 'Project could not be created.');
     } finally {
       setIsCreating(false);
     }
@@ -306,6 +315,13 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
             </div>
           ) : (
             <form onSubmit={handleCreate} className="flex flex-col gap-3 text-xs">
+              {createError && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400 flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>{createError}</span>
+                </div>
+              )}
+
               <div className="flex flex-col gap-1">
                 <label className="text-zinc-400 font-medium">GitHub Organization / Account</label>
                 <select
@@ -683,9 +699,13 @@ function ProjectCard({
           {loading ? (
             <Loader2 size={14} className="animate-spin text-zinc-500" />
           ) : repoConn ? (
-            <span className="badge badge-success flex items-center gap-1 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Connected
-            </span>
+            repoConn.status === 'connected' ? (
+              <span className="badge badge-success flex items-center gap-1 text-xs">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Connected
+              </span>
+            ) : (
+              <span className="badge badge-error text-xs capitalize">{repoConn.status}</span>
+            )
           ) : (
             <span className="badge badge-neutral text-xs">No Repository</span>
           )}
@@ -718,11 +738,9 @@ function ProjectCard({
             {latestJob && (
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#ffffff0a] text-zinc-300">
                 <span className="font-semibold text-zinc-400 font-display">Ingestion:</span>
-                <span className={`capitalize font-medium ${
-                  latestJob.status === 'succeeded' ? 'text-emerald-400' :
-                  latestJob.status === 'failed' ? 'text-red-400' :
-                  'text-amber-400 animate-pulse'
-                }`}>{latestJob.status}</span>
+                <span className={`badge ${ingestionBadge(latestJob.status).className} text-xs`}>
+                  {ingestionBadge(latestJob.status).label}
+                </span>
               </div>
             )}
           </div>

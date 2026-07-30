@@ -74,6 +74,7 @@ service IntegrationService {
     rpc ListRepositories(ListRepositoriesRequest) returns (ListRepositoriesResponse);
     rpc AttachRepository(AttachRepositoryRequest) returns (AttachRepositoryResponse);
     rpc GetRepositoryConnection(GetRepositoryConnectionRequest) returns (GetRepositoryConnectionResponse);
+    rpc ListRepositoryConnections(ListRepositoryConnectionsRequest) returns (ListRepositoryConnectionsResponse);
     rpc HandleGitHubWebhook(HandleGitHubWebhookRequest) returns (HandleGitHubWebhookResponse);
     rpc DecideFixApproval(DecideFixApprovalRequest) returns (DecideFixApprovalResponse);
     rpc UpsertLogProviderConnection(UpsertLogProviderConnectionRequest) returns (UpsertLogProviderConnectionResponse);
@@ -160,6 +161,22 @@ message GetRepositoryConnectionRequest {
 message GetRepositoryConnectionResponse {
     RepositoryConnection repository_connection = 1;
     IngestionJob latest_ingestion_job = 2;
+}
+
+message RepositoryConnectionSummary {
+    RepositoryConnection repository_connection = 1;
+    IngestionJob latest_ingestion_job = 2;
+    string project_name = 3;
+    string workspace_name = 4;
+}
+
+message ListRepositoryConnectionsRequest {
+    string user_id = 1;
+    string workspace_id = 2; // optional; empty lists every workspace the caller belongs to
+}
+
+message ListRepositoryConnectionsResponse {
+    repeated RepositoryConnectionSummary connections = 1;
 }
 
 message HandleGitHubWebhookRequest {

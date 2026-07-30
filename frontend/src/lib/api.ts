@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 async function fetchAPI(endpoint: string, token: string, options: RequestInit = {}) {
   const headers: HeadersInit = {
@@ -150,8 +150,10 @@ export interface RepositoryConnection {
   html_url: string;
   selected_branch: string;
   status: string;
-  last_indexed_commit_sha: string;
-  last_indexed_at: string;
+  // protobuf json tags carry omitempty, so these keys are ABSENT (not empty
+  // strings) until the repository has been indexed at least once.
+  last_indexed_commit_sha?: string;
+  last_indexed_at?: string;
 }
 
 export interface IngestionJob {
@@ -246,6 +248,31 @@ export async function getRepositoryConnection(
   projectId: string
 ): Promise<{ repository_connection: RepositoryConnection | null; latest_ingestion_job: IngestionJob | null }> {
   return fetchAPI(`/api/v1/workspaces/${workspaceId}/projects/${projectId}/repository`, token);
+}
+
+// ── Connected repositories (dashboard overview) ─────────────────
+
+export interface RepositoryConnectionSummary {
+  repository_connection: RepositoryConnection;
+  // Absent from the payload when the project has never been indexed.
+  latest_ingestion_job?: IngestionJob | null;
+  project_name: string;
+  workspace_name: string;
+}
+
+/**
+ * Lists every repository connection the caller can see. Omit workspaceId to
+ * span every workspace the caller belongs to; the integration service bounds
+ * results by workspace membership either way.
+ */
+export async function listConnectedRepositories(
+  token: string,
+  workspaceId?: string
+): Promise<{ connections: RepositoryConnectionSummary[] }> {
+  const path = workspaceId
+    ? `/api/v1/workspaces/${workspaceId}/repositories`
+    : '/api/v1/repositories';
+  return fetchAPI(path, token);
 }
 
 // ── Project intelligence ───────────────────────────────────────

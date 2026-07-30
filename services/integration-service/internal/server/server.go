@@ -119,8 +119,11 @@ func (s *IntegrationServer) persistGitHubInstallation(
 			account_type, repository_selection, permissions, status, installed_by, installed_at
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, NOW())
-		ON CONFLICT (installation_id) DO UPDATE
-			SET status = 'active', repository_selection = EXCLUDED.repository_selection,
+		ON CONFLICT (workspace_id, installation_id) DO UPDATE
+			SET status = 'active', integration_id = EXCLUDED.integration_id,
+				account_id = EXCLUDED.account_id, account_login = EXCLUDED.account_login,
+				account_type = EXCLUDED.account_type,
+				repository_selection = EXCLUDED.repository_selection,
 				permissions = EXCLUDED.permissions, updated_at = NOW()
 		RETURNING id, account_login, COALESCE(account_type, ''),
 			COALESCE(repository_selection, ''), status, installed_at
@@ -496,6 +499,100 @@ func (s *IntegrationServer) GetRepositoryConnection(ctx context.Context, req *in
 	}
 
 	return res, nil
+}
+
+// ListRepositoryConnections returns every connected repository the caller can
+// see. With an empty workspace_id it spans all of the caller's workspaces,
+// which is what the top-level dashboard renders.
+func (s *IntegrationServer) ListRepositoryConnections(ctx context.Context, req *integrationv1.ListRepositoryConnectionsRequest) (*integrationv1.ListRepositoryConnectionsResponse, error) {
+	if req.UserId == "" {
+		return nil, status.Error(codes.InvalidArgument, "user_id is required")
+	}
+	// Scoped mode gets the explicit role guard. Unscoped mode is bounded by the
+	// workspace_members join below — keep that predicate in the JOIN condition,
+	// because moving it into WHERE alongside the OR would leak every repository
+	// in the database.
+	if req.WorkspaceId != "" {
+		if err := s.requireWorkspaceRole(ctx, req.WorkspaceId, req.UserId, "owner", "admin", "developer", "viewer"); err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := s.db.Query(ctx, `
+		SELECT rc.id, rc.workspace_id, w.name, rc.project_id, p.name,
+		       rc.full_name, COALESCE(rc.html_url, ''), rc.selected_branch, rc.status,
+		       COALESCE(rc.last_indexed_commit_sha, ''), rc.last_indexed_at,
+		       COALESCE(j.id::text, ''), COALESCE(j.status, ''),
+		       COALESCE(j.source_branch, ''), COALESCE(j.source_commit_sha, ''),
+		       j.started_at, j.finished_at
+		FROM repository_connections rc
+		JOIN workspace_members wm ON wm.workspace_id = rc.workspace_id AND wm.user_id = $1::uuid
+		JOIN workspaces w ON w.id = rc.workspace_id
+		JOIN projects   p ON p.id = rc.project_id
+		LEFT JOIN LATERAL (
+			SELECT ij.id, ij.status, ij.source_branch, ij.source_commit_sha, ij.started_at, ij.finished_at
+			FROM ingestion_jobs ij
+			WHERE ij.workspace_id = rc.workspace_id AND ij.project_id = rc.project_id
+			ORDER BY ij.queued_at DESC
+			LIMIT 1
+		) j ON TRUE
+		-- NULLIF keeps the empty (unscoped) case from ever reaching a uuid cast,
+		-- so this does not depend on OR short-circuit evaluation order.
+		WHERE (NULLIF($2, '')::uuid IS NULL OR rc.workspace_id = NULLIF($2, '')::uuid)
+		ORDER BY w.created_at DESC, p.name ASC
+	`, req.UserId, req.WorkspaceId)
+	if err != nil {
+		s.logger.Error("list repository connections failed", "error", err)
+		return nil, status.Error(codes.Internal, "database query error")
+	}
+	defer rows.Close()
+
+	summaries := make([]*integrationv1.RepositoryConnectionSummary, 0)
+	for rows.Next() {
+		conn := &integrationv1.RepositoryConnection{}
+		job := &integrationv1.IngestionJob{}
+		var workspaceName, projectName string
+		var lastIndexedAt, jobStarted, jobFinished *time.Time
+
+		if err := rows.Scan(
+			&conn.Id, &conn.WorkspaceId, &workspaceName, &conn.ProjectId, &projectName,
+			&conn.FullName, &conn.HtmlUrl, &conn.SelectedBranch, &conn.Status,
+			&conn.LastIndexedCommitSha, &lastIndexedAt,
+			&job.Id, &job.Status, &job.SourceBranch, &job.SourceCommitSha,
+			&jobStarted, &jobFinished,
+		); err != nil {
+			s.logger.Error("scan repository connection failed", "error", err)
+			return nil, status.Error(codes.Internal, "failed to read repository connection")
+		}
+
+		if lastIndexedAt != nil {
+			conn.LastIndexedAt = lastIndexedAt.Format(time.RFC3339)
+		}
+
+		summary := &integrationv1.RepositoryConnectionSummary{
+			RepositoryConnection: conn,
+			ProjectName:          projectName,
+			WorkspaceName:        workspaceName,
+		}
+		if job.Id != "" {
+			job.WorkspaceId = conn.WorkspaceId
+			job.ProjectId = conn.ProjectId
+			if jobStarted != nil {
+				job.StartedAt = jobStarted.Format(time.RFC3339)
+			}
+			if jobFinished != nil {
+				job.FinishedAt = jobFinished.Format(time.RFC3339)
+			}
+			summary.LatestIngestionJob = job
+		}
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Error("iterate repository connections failed", "error", err)
+		return nil, status.Error(codes.Internal, "failed to read repository connections")
+	}
+
+	return &integrationv1.ListRepositoryConnectionsResponse{Connections: summaries}, nil
 }
 
 func (s *IntegrationServer) HandleGitHubWebhook(ctx context.Context, req *integrationv1.HandleGitHubWebhookRequest) (*integrationv1.HandleGitHubWebhookResponse, error) {

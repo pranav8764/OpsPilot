@@ -6,6 +6,7 @@ import WorkspacesPage from "./page";
 const api = vi.hoisted(() => ({
   createWorkspace: vi.fn(),
   getWorkspaces: vi.fn(),
+  listConnectedRepositories: vi.fn(),
 }));
 const auth = vi.hoisted(() => ({
   getToken: vi.fn(async () => "test-session-token"),
@@ -18,6 +19,7 @@ vi.mock("@clerk/nextjs", () => ({
 vi.mock("@/lib/api", () => ({
   createWorkspace: api.createWorkspace,
   getWorkspaces: api.getWorkspaces,
+  listConnectedRepositories: api.listConnectedRepositories,
 }));
 
 const existingWorkspace = {
@@ -35,9 +37,11 @@ describe("workspace dashboard", () => {
   beforeEach(() => {
     api.createWorkspace.mockReset();
     api.getWorkspaces.mockReset();
+    api.listConnectedRepositories.mockReset();
     auth.getToken.mockReset();
     auth.getToken.mockResolvedValue("test-session-token");
     api.getWorkspaces.mockResolvedValue({ workspaces: [existingWorkspace] });
+    api.listConnectedRepositories.mockResolvedValue({ connections: [] });
   });
 
   it("renders the authenticated user's workspaces", async () => {

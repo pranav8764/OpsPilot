@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import { CheckCircle, XCircle, Clock, DollarSign, RefreshCw, FileCode, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { API_URL } from '@/lib/api';
 
 interface Edit {
   path: string;
@@ -35,6 +37,7 @@ interface EvalReport {
 }
 
 export default function EvalDashboard() {
+  const { getToken } = useAuth();
   const [report, setReport] = useState<EvalReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +47,13 @@ export default function EvalDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/eval/report');
+      // The report is served by the API gateway behind auth, not by Next.js —
+      // a relative fetch would hit the frontend origin and always 404.
+      const token = await getToken();
+      if (!token) throw new Error('Your session has expired. Sign in again.');
+      const res = await fetch(`${API_URL}/api/v1/eval/report`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      });
       if (res.status === 404) {
         setError('NO_REPORT');
         setReport(null);

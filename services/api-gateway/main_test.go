@@ -64,6 +64,18 @@ func TestWorkspaceUsagePath(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRepositoriesPath(t *testing.T) {
+	valid := "/api/v1/workspaces/workspace-1/repositories"
+	if !isWorkspaceRepositoriesPath(valid) || isWorkspaceRepositoriesPath(valid+"/extra") {
+		t.Fatal("workspace repository collection route matching is incorrect")
+	}
+	// The GitHub installation repo listing also ends in "repositories" and is
+	// distinguished only by length; it must never match this route.
+	if isWorkspaceRepositoriesPath("/api/v1/workspaces/workspace-1/integrations/github/installations/1/repositories") {
+		t.Fatal("installation repository route must not match the workspace repository route")
+	}
+}
+
 func TestProjectPath(t *testing.T) {
 	valid := "/api/v1/workspaces/workspace-1/projects/project-1"
 	if !isProjectPath(valid) || isProjectPath(valid+"/extra") {

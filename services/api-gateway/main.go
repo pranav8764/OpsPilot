@@ -110,6 +110,9 @@ func main() {
 	mux.Handle("/api/v1/integrations/github/callback", http.HandlerFunc(integrationHandler.GitHubCallback))
 	mux.Handle("/api/v1/webhooks/github", http.HandlerFunc(integrationHandler.GitHubWebhook))
 
+	// Connected repositories across every workspace the caller belongs to
+	mux.Handle("/api/v1/repositories", authMiddleware(http.HandlerFunc(integrationHandler.ListConnectedRepositories)))
+
 	// Workspace routes
 	mux.Handle("/api/v1/workspaces", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -216,6 +219,13 @@ func main() {
 			}
 			return
 		}
+		// Workspace-scoped connected repository list. Must precede the bare
+		// GET fallback below, which would otherwise answer 200 with a workspace
+		// body and leave the client reading an undefined connections field.
+		if isWorkspaceRepositoriesPath(r.URL.Path) {
+			integrationHandler.ListConnectedRepositories(w, r)
+			return
+		}
 		// /api/v1/workspaces/{id}/projects
 		if isProjectsPath(r.URL.Path) {
 			switch r.Method {
@@ -317,6 +327,12 @@ func isWorkspaceUsagePath(path string) bool {
 func isWorkspaceSettingsPath(path string) bool {
 	parts := splitPath(path)
 	return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "settings"
+}
+
+func isWorkspaceRepositoriesPath(path string) bool {
+	// matches /api/v1/workspaces/{workspaceId}/repositories
+	parts := splitPath(path)
+	return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "workspaces" && parts[4] == "repositories"
 }
 
 func isGitHubInstallationsPath(path string) bool {

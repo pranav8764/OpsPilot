@@ -27,6 +27,7 @@ const (
 	IntegrationService_ListRepositories_FullMethodName             = "/opspilot.integration.v1.IntegrationService/ListRepositories"
 	IntegrationService_AttachRepository_FullMethodName             = "/opspilot.integration.v1.IntegrationService/AttachRepository"
 	IntegrationService_GetRepositoryConnection_FullMethodName      = "/opspilot.integration.v1.IntegrationService/GetRepositoryConnection"
+	IntegrationService_ListRepositoryConnections_FullMethodName    = "/opspilot.integration.v1.IntegrationService/ListRepositoryConnections"
 	IntegrationService_HandleGitHubWebhook_FullMethodName          = "/opspilot.integration.v1.IntegrationService/HandleGitHubWebhook"
 	IntegrationService_DecideFixApproval_FullMethodName            = "/opspilot.integration.v1.IntegrationService/DecideFixApproval"
 	IntegrationService_UpsertLogProviderConnection_FullMethodName  = "/opspilot.integration.v1.IntegrationService/UpsertLogProviderConnection"
@@ -46,6 +47,7 @@ type IntegrationServiceClient interface {
 	ListRepositories(ctx context.Context, in *ListRepositoriesRequest, opts ...grpc.CallOption) (*ListRepositoriesResponse, error)
 	AttachRepository(ctx context.Context, in *AttachRepositoryRequest, opts ...grpc.CallOption) (*AttachRepositoryResponse, error)
 	GetRepositoryConnection(ctx context.Context, in *GetRepositoryConnectionRequest, opts ...grpc.CallOption) (*GetRepositoryConnectionResponse, error)
+	ListRepositoryConnections(ctx context.Context, in *ListRepositoryConnectionsRequest, opts ...grpc.CallOption) (*ListRepositoryConnectionsResponse, error)
 	HandleGitHubWebhook(ctx context.Context, in *HandleGitHubWebhookRequest, opts ...grpc.CallOption) (*HandleGitHubWebhookResponse, error)
 	DecideFixApproval(ctx context.Context, in *DecideFixApprovalRequest, opts ...grpc.CallOption) (*DecideFixApprovalResponse, error)
 	UpsertLogProviderConnection(ctx context.Context, in *UpsertLogProviderConnectionRequest, opts ...grpc.CallOption) (*UpsertLogProviderConnectionResponse, error)
@@ -141,6 +143,16 @@ func (c *integrationServiceClient) GetRepositoryConnection(ctx context.Context, 
 	return out, nil
 }
 
+func (c *integrationServiceClient) ListRepositoryConnections(ctx context.Context, in *ListRepositoryConnectionsRequest, opts ...grpc.CallOption) (*ListRepositoryConnectionsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRepositoryConnectionsResponse)
+	err := c.cc.Invoke(ctx, IntegrationService_ListRepositoryConnections_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *integrationServiceClient) HandleGitHubWebhook(ctx context.Context, in *HandleGitHubWebhookRequest, opts ...grpc.CallOption) (*HandleGitHubWebhookResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HandleGitHubWebhookResponse)
@@ -203,6 +215,7 @@ type IntegrationServiceServer interface {
 	ListRepositories(context.Context, *ListRepositoriesRequest) (*ListRepositoriesResponse, error)
 	AttachRepository(context.Context, *AttachRepositoryRequest) (*AttachRepositoryResponse, error)
 	GetRepositoryConnection(context.Context, *GetRepositoryConnectionRequest) (*GetRepositoryConnectionResponse, error)
+	ListRepositoryConnections(context.Context, *ListRepositoryConnectionsRequest) (*ListRepositoryConnectionsResponse, error)
 	HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error)
 	DecideFixApproval(context.Context, *DecideFixApprovalRequest) (*DecideFixApprovalResponse, error)
 	UpsertLogProviderConnection(context.Context, *UpsertLogProviderConnectionRequest) (*UpsertLogProviderConnectionResponse, error)
@@ -237,6 +250,9 @@ func (UnimplementedIntegrationServiceServer) AttachRepository(context.Context, *
 }
 func (UnimplementedIntegrationServiceServer) GetRepositoryConnection(context.Context, *GetRepositoryConnectionRequest) (*GetRepositoryConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRepositoryConnection not implemented")
+}
+func (UnimplementedIntegrationServiceServer) ListRepositoryConnections(context.Context, *ListRepositoryConnectionsRequest) (*ListRepositoryConnectionsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRepositoryConnections not implemented")
 }
 func (UnimplementedIntegrationServiceServer) HandleGitHubWebhook(context.Context, *HandleGitHubWebhookRequest) (*HandleGitHubWebhookResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method HandleGitHubWebhook not implemented")
@@ -409,6 +425,24 @@ func _IntegrationService_GetRepositoryConnection_Handler(srv interface{}, ctx co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _IntegrationService_ListRepositoryConnections_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRepositoryConnectionsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(IntegrationServiceServer).ListRepositoryConnections(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: IntegrationService_ListRepositoryConnections_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(IntegrationServiceServer).ListRepositoryConnections(ctx, req.(*ListRepositoryConnectionsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _IntegrationService_HandleGitHubWebhook_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(HandleGitHubWebhookRequest)
 	if err := dec(in); err != nil {
@@ -537,6 +571,10 @@ var IntegrationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRepositoryConnection",
 			Handler:    _IntegrationService_GetRepositoryConnection_Handler,
+		},
+		{
+			MethodName: "ListRepositoryConnections",
+			Handler:    _IntegrationService_ListRepositoryConnections_Handler,
 		},
 		{
 			MethodName: "HandleGitHubWebhook",
