@@ -116,11 +116,10 @@ func (s *IntegrationServer) publishFixPRWithToken(ctx context.Context, record *f
 		return nil, fmt.Errorf("create fix branch: %w", err)
 	}
 
-	var verification map[string]any
-	_ = json.Unmarshal(record.VerificationJSON, &verification)
 	body := fmt.Sprintf(
-		"## OpsPilot FIX proposal\n\nIncident: `%s`\n\n%s\n\n### Safety evidence\n\n- Base commit pinned: `%s`\n- Secret/path/static checks: passed\n- Repository tests: not run (isolated sandbox not configured)\n- Human approval: `%s`\n\nThis PR is intentionally a draft and must be reviewed and tested before merge.\n",
-		record.IncidentID, record.IncidentTitle, record.BaseCommitSHA, record.ApprovalID,
+		"## OpsPilot FIX proposal\n\nIncident: `%s`\n\n%s\n\n### Safety evidence\n\n- Base commit pinned: `%s`\n%s- Human approval: `%s`\n\nThis PR is intentionally a draft and must be reviewed and tested before merge.\n",
+		record.IncidentID, record.IncidentTitle, record.BaseCommitSHA,
+		fixVerificationEvidence(record.VerificationJSON), record.ApprovalID,
 	)
 	var pullRequest struct {
 		HTMLURL string `json:"html_url"`
@@ -170,6 +169,56 @@ func (s *IntegrationServer) githubJSON(ctx context.Context, method, endpoint, to
 		}
 	}
 	return nil
+}
+
+// fixVerificationEvidence renders the verification record the AI worker actually
+// produced, as Markdown bullet lines ending in a newline.
+//
+// The previous PR body asserted "Secret/path/static checks: passed" and
+// "Repository tests: not run" as literal text, regardless of what happened. That
+// is a safety claim on a pull request that proposes a code change, so it has to
+// come from the recorded result or say plainly that it is unknown.
+func fixVerificationEvidence(verificationJSON []byte) string {
+	var verification map[string]any
+	if len(verificationJSON) == 0 || json.Unmarshal(verificationJSON, &verification) != nil {
+		return "- Verification record: unavailable\n"
+	}
+
+	var lines []string
+	check := func(label, key string) {
+		if value, ok := verification[key].(string); ok && value != "" {
+			lines = append(lines, fmt.Sprintf("- %s: `%s`", label, value))
+		}
+	}
+	check("Path policy", "path_policy")
+	check("Secret scan", "secret_scan")
+	check("Static validation", "static_validation")
+
+	if tests, ok := verification["tests"].(map[string]any); ok {
+		status, _ := tests["status"].(string)
+		if status == "" {
+			status = "unknown"
+		}
+		line := fmt.Sprintf("- Repository tests: `%s`", status)
+		if reason, ok := tests["reason"].(string); ok && reason != "" {
+			line += fmt.Sprintf(" (%s)", reason)
+		}
+		lines = append(lines, line)
+	} else {
+		lines = append(lines, "- Repository tests: `unknown`")
+	}
+
+	verified, _ := verification["verified_fix"].(bool)
+	if verified {
+		lines = append(lines, "- Sandbox verified the patched tree: `yes`")
+	} else {
+		lines = append(lines, "- Sandbox verified the patched tree: `no`")
+	}
+
+	if len(lines) == 0 {
+		return "- Verification record: unavailable\n"
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func escapeGitHubPath(value string) string {

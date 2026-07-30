@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	integrationv1 "github.com/opspilot/gen/proto/integration/v1"
 	"google.golang.org/grpc/codes"
@@ -66,14 +69,21 @@ func (s *IntegrationServer) CompleteGitHubInstallSession(ctx context.Context, re
 	}
 	stateHash := githubInstallStateHash(req.State)
 
-	// Resolve an unexpired session before the external read. The same predicate
-	// is checked again under a row lock before any local state is changed.
+	// Claim the state in one atomic statement BEFORE the external read.
+	//
+	// This endpoint is necessarily unauthenticated -- GitHub redirects here with
+	// no session -- and installation_id is caller-supplied. Previously the state
+	// was only consumed at the very end, so a failed metadata lookup left it
+	// reusable and a caller could sweep installation_ids with a single valid
+	// state until one resolved. Burning it up front makes that impossible: one
+	// state, one attempt, whatever the outcome.
 	var workspaceID, userID string
 	if err := s.db.QueryRow(ctx, `
-		SELECT workspace_id, user_id
-		FROM github_install_sessions
+		UPDATE github_install_sessions
+		SET consumed_at = NOW(), installation_id = $2
 		WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > NOW()
-	`, stateHash).Scan(&workspaceID, &userID); err != nil {
+		RETURNING workspace_id, user_id
+	`, stateHash, req.InstallationId).Scan(&workspaceID, &userID); err != nil {
 		return nil, status.Error(codes.PermissionDenied, "installation state is invalid, expired, or already used")
 	}
 
@@ -89,30 +99,39 @@ func (s *IntegrationServer) CompleteGitHubInstallSession(ctx context.Context, re
 	}
 	defer tx.Rollback(ctx)
 
-	var lockedWorkspaceID, lockedUserID string
-	if err := tx.QueryRow(ctx, `
-		SELECT workspace_id, user_id
-		FROM github_install_sessions
-		WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > NOW()
-		FOR UPDATE
-	`, stateHash).Scan(&lockedWorkspaceID, &lockedUserID); err != nil {
-		return nil, status.Error(codes.PermissionDenied, "installation state is invalid, expired, or already used")
-	}
-	if lockedWorkspaceID != workspaceID || lockedUserID != userID {
-		return nil, status.Error(codes.PermissionDenied, "installation state does not match")
+	// Refuse to bind an installation that another person already connected.
+	//
+	// Migration 004 scoped uniqueness to (workspace_id, installation_id) so one
+	// GitHub account can serve several of its owner's workspaces. That is the
+	// intended behaviour, but it also removed the global constraint that used to
+	// stop a caller inserting somebody else's installation into a workspace they
+	// control. Keying on installed_by preserves the multi-workspace case while
+	// closing the cross-tenant one.
+	var existingInstaller *string
+	err = tx.QueryRow(ctx, `
+		SELECT installed_by::text
+		FROM github_installations
+		WHERE installation_id = $1 AND workspace_id <> $2
+		LIMIT 1
+	`, req.InstallationId, workspaceID).Scan(&existingInstaller)
+	switch {
+	case err == nil:
+		if existingInstaller == nil || *existingInstaller != userID {
+			s.logger.Warn("rejected cross-tenant github installation bind",
+				"installation_id", req.InstallationId, "workspace_id", workspaceID, "user_id", userID)
+			return nil, status.Error(codes.PermissionDenied,
+				"this GitHub installation is already connected by another account")
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+		// Not bound anywhere else; nothing to check.
+	default:
+		s.logger.Error("failed to check existing installation binding", "error", err)
+		return nil, status.Error(codes.Internal, "failed to verify installation ownership")
 	}
 
 	installation, err := s.persistGitHubInstallation(ctx, tx, workspaceID, userID, req.InstallationId, meta)
 	if err != nil {
 		return nil, err
-	}
-	result, err := tx.Exec(ctx, `
-		UPDATE github_install_sessions
-		SET consumed_at = NOW(), installation_id = $2
-		WHERE token_hash = $1 AND consumed_at IS NULL
-	`, stateHash, req.InstallationId)
-	if err != nil || result.RowsAffected() != 1 {
-		return nil, status.Error(codes.Aborted, "installation session was already consumed")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, status.Error(codes.Internal, "failed to commit GitHub installation")

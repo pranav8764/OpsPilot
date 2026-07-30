@@ -12,7 +12,11 @@ services:
     container_name: opspilot-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      # Host port shifted off 5432: other local projects (and a host-native
+      # postgres) commonly hold it, and a failed bind leaves this container
+      # running with no network, which breaks DNS for every service.
+      # Internal traffic is unaffected — services dial postgres:5432.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-opspilot}
       POSTGRES_USER: ${POSTGRES_USER:-opspilot}
@@ -21,7 +25,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opspilot} -d ${POSTGRES_DB:-opspilot}"]
+      test: ["CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-opspilot} -d ${POSTGRES_DB:-opspilot}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -33,9 +37,10 @@ services:
     container_name: opspilot-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Shifted off 6379 for the same reason as postgres above.
+      - "127.0.0.1:${REDIS_HOST_PORT:-6380}:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-h", "redis", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -46,14 +51,16 @@ services:
     image: nats:2.10-alpine
     container_name: opspilot-nats
     restart: unless-stopped
-    ports:
-      - "4222:4222"
-      - "8222:8222"   # NATS monitoring UI
+    # No host publish. NATS has no authentication configured, and JetStream
+    # admin over an open port means anyone on the LAN can read every tenant's
+    # ingestion events, steal acks, or purge the stream. Both consumers
+    # (integration-service, ai-worker) reach it as nats://nats:4222 on the
+    # compose network, and the healthcheck uses http://nats:8222 internally.
     command: ["--jetstream", "--store_dir", "/data", "--http_port", "8222"]
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://nats:8222/healthz"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -69,9 +76,6 @@ services:
       dockerfile: services/auth-service/Dockerfile
     container_name: opspilot-auth
     restart: unless-stopped
-    ports:
-      - "9001:9001"
-      - "8081:8081"   # HTTP health check
     environment:
       AUTH_SERVICE_PORT: "9001"
       AUTH_SERVICE_HEALTH_PORT: "8081"
@@ -81,7 +85,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://auth-service:8081/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -95,9 +99,6 @@ services:
       dockerfile: services/workspace-service/Dockerfile
     container_name: opspilot-workspace
     restart: unless-stopped
-    ports:
-      - "9002:9002"
-      - "8082:8082"   # HTTP health check
     environment:
       WORKSPACE_SERVICE_PORT: "9002"
       WORKSPACE_SERVICE_HEALTH_PORT: "8082"
@@ -106,7 +107,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://workspace-service:8082/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -120,9 +121,6 @@ services:
       dockerfile: services/project-service/Dockerfile
     container_name: opspilot-project
     restart: unless-stopped
-    ports:
-      - "9003:9003"
-      - "8083:8083"   # HTTP health check
     environment:
       PROJECT_SERVICE_PORT: "9003"
       PROJECT_SERVICE_HEALTH_PORT: "8083"
@@ -131,7 +129,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://project-service:8083/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -145,9 +143,6 @@ services:
       dockerfile: services/integration-service/Dockerfile
     container_name: opspilot-integration
     restart: unless-stopped
-    ports:
-      - "9004:9004"
-      - "8084:8084"   # HTTP health check
     environment:
       INTEGRATION_SERVICE_PORT: "9004"
       INTEGRATION_SERVICE_HEALTH_PORT: "8084"
@@ -171,7 +166,7 @@ services:
       nats:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://integration-service:8084/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -186,7 +181,7 @@ services:
     container_name: opspilot-gateway
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8180}:8080"
     environment:
       GATEWAY_PORT: "8080"
       GATEWAY_ENV: ${GATEWAY_ENV:-development}
@@ -212,7 +207,7 @@ services:
       ai-worker:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://api-gateway:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -242,7 +237,7 @@ services:
       # docker-run invocations; do not expose port 8092 publicly.
       - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8092/health | grep -q '\"status\":\"ok\"'"]
+      test: ["CMD-SHELL", "wget -qO- http://sandbox-runner:8092/health | grep -q '\"status\":\"ok\"'"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -290,7 +285,7 @@ services:
       sandbox-runner:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/ready"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://ai-worker:8090/ready"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -310,7 +305,7 @@ services:
     container_name: opspilot-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3100}:3000"
     environment:
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_local_placeholder}
@@ -326,7 +321,7 @@ services:
       api-gateway:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://frontend:3000/"]
       interval: 10s
       timeout: 5s
       retries: 10
