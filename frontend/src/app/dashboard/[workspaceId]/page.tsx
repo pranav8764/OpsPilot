@@ -1,9 +1,10 @@
 'use client';
 
-import { use, useState, useEffect, useCallback } from 'react';
+import { use, useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
-import { Box, ArrowLeft, Loader2, GitBranch, Clock, ExternalLink, AlertCircle, RefreshCw, Send, FileCode2, ShieldCheck, Terminal, Search, GitPullRequest, LockKeyhole, Container, Clipboard, Trash2 } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Box, ArrowLeft, Loader2, GitBranch, Clock, ExternalLink, AlertCircle, RefreshCw, Send, FileCode2, ShieldCheck, Terminal, Search, GitPullRequest, LockKeyhole, Container, Clipboard, Trash2, CheckCircle2, Unplug } from 'lucide-react';
 import {
   getProjects,
   createProject,
@@ -42,9 +43,59 @@ import {
   scanDeploymentReadiness,
   generateDeploymentFiles,
   WorkspaceUsageSummary,
-  getWorkspaceUsage
+  getWorkspaceUsage,
+  isInstallationUsable,
+  isRevokedConnection,
+  repositoryConnectionHealth,
+  describeRequestError,
+  settle
 } from '@/lib/api';
 import { ingestionBadge } from '@/lib/ingestion';
+
+/** Where a user reviews and changes which repositories the App can read. */
+const GITHUB_INSTALLATIONS_URL = 'https://github.com/settings/installations';
+
+/**
+ * The recoverable-failure treatment used across the dashboard: an alert the
+ * user can read plus the action that retries the request.
+ */
+function InlineError({
+  title,
+  message,
+  onRetry,
+  retryLabel = 'Retry',
+}: {
+  title: string;
+  message: string;
+  onRetry: () => void;
+  retryLabel?: string;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-2 rounded-lg border border-[var(--error)]/25 bg-[var(--error)]/10 p-3 text-xs"
+    >
+      <span className="flex items-start gap-2 font-medium text-[var(--error)]">
+        <AlertCircle size={14} className="shrink-0 mt-0.5" />
+        <span>{title}</span>
+      </span>
+      <span className="leading-4 text-[var(--text-secondary)]">{message}</span>
+      <button type="button" onClick={onRetry} className="btn btn-secondary self-start">
+        <RefreshCw size={12} /> {retryLabel}
+      </button>
+    </div>
+  );
+}
+
+/** Starts a fresh install so a revoked installation can be re-granted. */
+function ReconnectButton({ onClick, busy }: { onClick: () => void; busy: boolean }) {
+  return (
+    <button type="button" onClick={onClick} disabled={busy} className="btn btn-secondary self-start">
+      {busy ? <Loader2 size={12} className="animate-spin" /> : <GithubIcon size={12} />}
+      {busy ? 'Preparing…' : 'Reconnect GitHub App'}
+    </button>
+  );
+}
 
 const GithubIcon = ({ size = 20, className = "" }: { size?: number; className?: string }) => (
   <svg
@@ -65,9 +116,33 @@ const GithubIcon = ({ size = 20, className = "" }: { size?: number; className?: 
 );
 
 
-export default function WorkspaceDetail({ params }: { params: Promise<{ workspaceId: string }> }) {
+/**
+ * useSearchParams() suspends when the route is prerendered, so the reader has
+ * to sit under a Suspense boundary or `next build` fails the route.
+ */
+export default function WorkspaceDetailPage({ params }: { params: Promise<{ workspaceId: string }> }) {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex-center h-full">
+          <Loader2 className="animate-spin text-[var(--accent-primary)]" size={32} />
+        </div>
+      }
+    >
+      <WorkspaceDetail params={params} />
+    </Suspense>
+  );
+}
+
+function WorkspaceDetail({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
   const { getToken } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The gateway 303-redirects here after a completed install. Without reading
+  // it the freshly connected repository only appeared on a later full reload.
+  const justConnected = searchParams.get('github') === 'connected';
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -89,38 +164,113 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
   const [startingInstall, setStartingInstall] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [installationsError, setInstallationsError] = useState<string | null>(null);
+  const [repoError, setRepoError] = useState<string | null>(null);
+  const [connectionNotice, setConnectionNotice] = useState(false);
   const [logProviders, setLogProviders] = useState<LogProviderConnection[]>([]);
   const [usage, setUsage] = useState<WorkspaceUsageSummary | null>(null);
 
+  // Two fetches can be in flight at once (mount plus a post-install refetch, or
+  // a retry). Only the most recently started one may write state, otherwise an
+  // older snapshot can land last and win.
+  const workspaceRequest = useRef(0);
+  const repoRequest = useRef(0);
+
   const fetchData = useCallback(async () => {
+    const request = ++workspaceRequest.current;
     try {
       const token = await getToken();
       if (!token) return;
 
+      // Settled rather than swallowed: an empty result and a failed call lead
+      // to opposite screens, and conflating them told the user to install an
+      // App they had already installed.
       const [wsRes, projRes, configRes, instsRes, providersRes, usageRes] = await Promise.all([
         getWorkspace(token, workspaceId),
         getProjects(token, workspaceId),
-        getGitHubIntegrationConfig(token).catch(e => { console.error(e); return null; }),
-        listGitHubInstallations(token, workspaceId).catch(e => { console.error(e); return { installations: [] }; }),
+        settle(getGitHubIntegrationConfig(token)),
+        settle(listGitHubInstallations(token, workspaceId)),
         listLogProviderConnections(token, workspaceId).catch(e => { console.error(e); return { connections: [] }; }),
         getWorkspaceUsage(token, workspaceId).catch(e => { console.error(e); return null; })
       ]);
+      if (request !== workspaceRequest.current) return;
 
       setWorkspace(wsRes.workspace);
       setProjects(projRes.projects || []);
-      if (configRes) setGithubConfig(configRes);
-      if (instsRes) setInstallations(instsRes.installations || []);
       setLogProviders(providersRes.connections || []);
       setUsage(usageRes);
 
-      if (instsRes?.installations?.length > 0) {
-        setSelectedInst(instsRes.installations[0].id);
+      // A failed config call must not read as "not configured", which would
+      // hide the connection UI behind a backend-misconfiguration message.
+      if (configRes.ok) setGithubConfig(configRes.value);
+      else console.error('Error loading GitHub integration config:', configRes.error);
+
+      if (instsRes.ok) {
+        const list = instsRes.value.installations || [];
+        setInstallations(list);
+        setInstallationsError(null);
+        // Selecting a revoked installation would only produce a failing
+        // repository call, so prefer one that can still mint a token.
+        const selectable = list.find(inst => isInstallationUsable(inst.status));
+        setSelectedInst(selectable ? selectable.id : '');
+      } else {
+        console.error('Error loading GitHub installations:', instsRes.error);
+        setInstallations([]);
+        setSelectedInst('');
+        setInstallationsError(
+          describeRequestError(instsRes.error, 'GitHub installations could not be loaded.')
+        );
       }
     } catch (error) {
       console.error('Error fetching workspace data:', error);
     } finally {
-      setLoading(false);
-      setLoadingConfig(false);
+      if (request === workspaceRequest.current) {
+        setLoading(false);
+        setLoadingConfig(false);
+      }
+    }
+  }, [getToken, workspaceId]);
+
+  /**
+   * Reloads the repositories the selected installation grants. Callable from
+   * the Retry and Refresh actions, not only from the effect, so every recovery
+   * path on this screen is the same code.
+   */
+  const loadRepos = useCallback(async (installationId: string) => {
+    const request = ++repoRequest.current;
+    if (!installationId) {
+      setRepositories([]);
+      setRepoError(null);
+      setLoadingRepos(false);
+      setSelectedRepoId('');
+      setSelectedRepo(null);
+      return;
+    }
+    setLoadingRepos(true);
+    setRepoError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Your session has expired. Sign in again.');
+      const res = await listGitHubRepositories(token, workspaceId, installationId);
+      if (request !== repoRequest.current) return;
+      const next = res.repositories || [];
+      setRepositories(next);
+      // Keep an in-progress choice across a refresh, but drop it if GitHub no
+      // longer offers that repository — silently attaching a repo the user can
+      // no longer see would be worse than making them pick again.
+      setSelectedRepoId(current => (next.some(r => r.repository_id.toString() === current) ? current : ''));
+      setSelectedRepo(current => (current && next.some(r => r.repository_id === current.repository_id) ? current : null));
+    } catch (e) {
+      if (request !== repoRequest.current) return;
+      console.error('Error loading repositories:', e);
+      // Clearing the list without an error is what rendered a failure as an
+      // empty, enabled dropdown.
+      setRepositories([]);
+      setSelectedRepoId('');
+      setSelectedRepo(null);
+      setRepoError(describeRequestError(e, 'Repositories could not be loaded from GitHub.'));
+    } finally {
+      if (request === repoRequest.current) setLoadingRepos(false);
     }
   }, [getToken, workspaceId]);
 
@@ -131,34 +281,37 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
     fetchData();
   }, [fetchData]);
 
-  // Load repositories when installation changes
   useEffect(() => {
-    async function loadRepos() {
-      if (!selectedInst) {
-        setRepositories([]);
-        return;
-      }
-      setLoadingRepos(true);
-      try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await listGitHubRepositories(token, workspaceId, selectedInst);
-        setRepositories(res.repositories || []);
-        setSelectedRepoId('');
-        setSelectedRepo(null);
-      } catch (e) {
-        console.error('Error loading repositories:', e);
-        setRepositories([]);
-      } finally {
-        setLoadingRepos(false);
-      }
-    }
-    loadRepos();
-  }, [selectedInst, getToken, workspaceId]);
+    // `connectionNotice` latches the one-shot: without it a router object that
+    // is not referentially stable would refetch on every render.
+    if (!justConnected || connectionNotice) return;
+    // Deferred so the state updates land outside the effect body, matching the
+    // pattern the rest of this app uses to satisfy react-hooks/set-state-in-effect.
+    const timer = setTimeout(() => {
+      setConnectionNotice(true);
+      void fetchData();
+      // Drop the marker so a later reload does not refetch again.
+      router.replace(pathname, { scroll: false });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [justConnected, connectionNotice, fetchData, router, pathname]);
+
+  // Reload repositories whenever the selected installation changes.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadRepos(selectedInst);
+  }, [selectedInst, loadRepos]);
+
+  const refreshRepos = useCallback(() => { void loadRepos(selectedInst); }, [loadRepos, selectedInst]);
+
+  const usableInstallations = installations.filter(inst => isInstallationUsable(inst.status));
+  const revokedInstallations = installations.filter(inst => !isInstallationUsable(inst.status));
+  // Only repositories the App still grants access to may be attached.
+  const selectableRepositories = repositories.filter(repo => !isRevokedConnection(repo.status));
 
   const handleSelectRepo = (repoIdStr: string) => {
     setSelectedRepoId(repoIdStr);
-    const repo = repositories.find(r => r.repository_id.toString() === repoIdStr);
+    const repo = selectableRepositories.find(r => r.repository_id.toString() === repoIdStr);
     setSelectedRepo(repo || null);
     if (repo) {
       setNewProjectName(repo.name);
@@ -205,7 +358,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
           console.error('Error attaching repository:', attachErr);
           setCreateError(
             `Project "${newProj.name}" was created, but the repository could not be attached: ` +
-            (attachErr instanceof Error ? attachErr.message : 'unknown error')
+            describeRequestError(attachErr, 'unknown error')
           );
         }
       }
@@ -220,7 +373,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
       setProjects(projRes.projects || []);
     } catch (error) {
       console.error('Error creating project:', error);
-      setCreateError(error instanceof Error ? error.message : 'Project could not be created.');
+      setCreateError(describeRequestError(error, 'Project could not be created.'));
     } finally {
       setIsCreating(false);
     }
@@ -252,7 +405,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
       const session = await createGitHubInstallSession(token, workspaceId);
       window.location.assign(session.install_url);
     } catch (error) {
-      setInstallError(error instanceof Error ? error.message : 'Failed to prepare GitHub installation.');
+      setInstallError(describeRequestError(error, 'Failed to prepare GitHub installation.'));
       setStartingInstall(false);
     }
   }
@@ -291,11 +444,26 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
             <p className="text-xs text-[var(--text-secondary)] mt-1">Connect GitHub repository to initialize AI context.</p>
           </div>
 
+          {connectionNotice && (
+            <p className="mb-3 flex items-start gap-2 rounded-lg border border-[var(--success)]/25 bg-[var(--success-bg)] p-3 text-xs text-[var(--success)]">
+              <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+              <span>GitHub App connected. The repositories you granted are listed below.</span>
+            </p>
+          )}
+
           {!loadingConfig && githubConfig && !githubConfig.configured ? (
             <div className="bg-[var(--error)]/10 border border-[var(--error)]/20 rounded-lg p-3 text-xs text-[var(--error)] flex items-start gap-2 mb-4">
               <AlertCircle size={16} className="shrink-0 mt-0.5" />
               <span>GitHub App is not configured on the backend. Please check your settings.</span>
             </div>
+          ) : installationsError ? (
+            /* A failed call is not an absent installation: never offer to
+               install an App the user may already have installed. */
+            <InlineError
+              title="GitHub installations could not be loaded"
+              message={installationsError}
+              onRetry={fetchData}
+            />
           ) : installations.length === 0 ? (
             <div className="flex flex-col gap-3">
               <p className="text-xs text-[var(--text-muted)]">Attach Archiatros GitHub App to list your account/org repositories.</p>
@@ -316,52 +484,116 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
           ) : (
             <form onSubmit={handleCreate} className="flex flex-col gap-3 text-xs">
               {createError && (
-                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400 flex items-start gap-2">
+                <div role="alert" className="bg-[var(--error)]/10 border border-[var(--error)]/25 rounded-lg p-3 text-xs text-[var(--error)] flex items-start gap-2">
                   <AlertCircle size={14} className="shrink-0 mt-0.5" />
                   <span>{createError}</span>
                 </div>
               )}
 
-              <div className="flex flex-col gap-1">
-                <label className="text-[var(--text-secondary)] font-medium">GitHub Organization / Account</label>
-                <select
-                  className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
-                  value={selectedInst}
-                  onChange={(e) => setSelectedInst(e.target.value)}
-                >
-                  {installations.map(inst => (
-                    <option key={inst.id} value={inst.id}>
-                      {inst.account_login} ({inst.account_type})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {revokedInstallations.length > 0 && (
+                <div role="alert" className="flex flex-col gap-2 rounded-lg border border-[var(--warning)]/25 bg-[var(--warning-bg)] p-3">
+                  <span className="flex items-start gap-2 font-medium text-[var(--warning)]">
+                    <Unplug size={14} className="shrink-0 mt-0.5" />
+                    <span>Reconnect required</span>
+                  </span>
+                  <span className="leading-4 text-[var(--text-secondary)]">
+                    {revokedInstallations.map(inst => inst.account_login).join(', ')} no longer grants Archiatros access.
+                    Reconnect the GitHub App to use these repositories again.
+                  </span>
+                  <ReconnectButton onClick={startGitHubInstall} busy={startingInstall} />
+                  {installError && <span className="text-[var(--error)]">{installError}</span>}
+                </div>
+              )}
 
-              <div className="flex flex-col gap-1">
-                <label className="text-[var(--text-secondary)] font-medium">Repository</label>
-                {loadingRepos ? (
-                  <div className="flex items-center gap-2 py-1.5 text-[var(--text-secondary)]">
-                    <Loader2 size={12} className="animate-spin" /> Loading repositories...
+              {usableInstallations.length > 0 && (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="github-installation" className="text-[var(--text-secondary)] font-medium">GitHub Organization / Account</label>
+                    <select
+                      id="github-installation"
+                      className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
+                      value={selectedInst}
+                      onChange={(e) => setSelectedInst(e.target.value)}
+                    >
+                      {usableInstallations.map(inst => (
+                        <option key={inst.id} value={inst.id}>
+                          {inst.account_login} ({inst.account_type})
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  <select
-                    className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
-                    value={selectedRepoId}
-                    onChange={(e) => handleSelectRepo(e.target.value)}
-                  >
-                    <option value="">-- Select Repository --</option>
-                    {repositories.map(repo => (
-                      <option key={repo.repository_id} value={repo.repository_id}>
-                        {repo.full_name} {repo.private ? '(Private)' : '(Public)'}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label htmlFor="github-repository" className="text-[var(--text-secondary)] font-medium">Repository</label>
+                    {loadingRepos ? (
+                      <div className="flex items-center gap-2 py-1.5 text-[var(--text-secondary)]">
+                        <Loader2 size={12} className="animate-spin" /> Loading repositories...
+                      </div>
+                    ) : repoError ? (
+                      <InlineError
+                        title="Repositories could not be loaded"
+                        message={repoError}
+                        onRetry={refreshRepos}
+                      />
+                    ) : selectableRepositories.length === 0 ? (
+                      <div className="flex flex-col gap-2 rounded-lg border border-[var(--border-light)] bg-[var(--bg-tertiary)] p-3">
+                        <span className="text-[var(--text-secondary)] leading-4">
+                          This installation does not grant Archiatros access to any repository yet.
+                          Choose repositories in GitHub, then refresh.
+                        </span>
+                        <div className="flex flex-wrap gap-2">
+                          <a
+                            href={GITHUB_INSTALLATIONS_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-secondary"
+                          >
+                            <ExternalLink size={12} /> Manage repository access
+                          </a>
+                          <button
+                            type="button"
+                            onClick={refreshRepos}
+                            className="btn btn-secondary"
+                          >
+                            <RefreshCw size={12} /> Refresh
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          id="github-repository"
+                          className="input-field py-1.5 px-2 bg-[var(--bg-tertiary)] border-[var(--border-medium)] text-[var(--text-primary)] rounded cursor-pointer"
+                          value={selectedRepoId}
+                          onChange={(e) => handleSelectRepo(e.target.value)}
+                        >
+                          <option value="">-- Select Repository --</option>
+                          {selectableRepositories.map(repo => (
+                            <option key={repo.repository_id} value={repo.repository_id}>
+                              {repo.full_name} {repo.private ? '(Private)' : '(Public)'}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="flex items-center justify-between gap-2 text-[10px] text-[var(--text-muted)]">
+                          <span>Only repositories you granted the App appear here.</span>
+                          <button
+                            type="button"
+                            onClick={refreshRepos}
+                            className="inline-flex items-center gap-1 text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)]"
+                          >
+                            <RefreshCw size={10} /> Refresh
+                          </button>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
 
               <div className="flex flex-col gap-1 mt-2">
-                <label className="text-[var(--text-secondary)] font-medium">Project Name</label>
+                <label htmlFor="project-name" className="text-[var(--text-secondary)] font-medium">Project Name</label>
                 <input
+                  id="project-name"
                   type="text"
                   placeholder="e.g. core-api"
                   className="input-field"
@@ -372,8 +604,9 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               </div>
 
               <div className="flex flex-col gap-1">
-                <label className="text-[var(--text-secondary)] font-medium">Description (Optional)</label>
+                <label htmlFor="project-description" className="text-[var(--text-secondary)] font-medium">Description (Optional)</label>
                 <textarea
+                  id="project-description"
                   placeholder="App details..."
                   className="input-field resize-none h-14"
                   value={newProjectDesc}
@@ -385,7 +618,7 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
               <button
                 type="submit"
                 className="btn btn-primary w-full mt-2"
-                disabled={isCreating || !newProjectName.trim()}
+                disabled={isCreating || loadingRepos || !newProjectName.trim()}
               >
                 {isCreating ? <Loader2 size={14} className="animate-spin" /> : 'Create & Connect Project'}
               </button>
@@ -406,6 +639,9 @@ export default function WorkspaceDetail({ params }: { params: Promise<{ workspac
             project={p}
             workspaceId={workspaceId}
             logProviders={logProviders}
+            onReconnect={startGitHubInstall}
+            reconnecting={startingInstall}
+            reconnectError={installError}
             onDeleted={() => {
               setProjects((current) => current.filter((item) => item.id !== p.id));
               void getToken().then((token) => token ? getWorkspaceUsage(token, workspaceId) : null).then((summary) => {
@@ -629,11 +865,17 @@ function ProjectCard({
   project,
   workspaceId,
   logProviders,
+  onReconnect,
+  reconnecting,
+  reconnectError,
   onDeleted,
 }: {
   project: Project;
   workspaceId: string;
   logProviders: LogProviderConnection[];
+  onReconnect: () => void;
+  reconnecting: boolean;
+  reconnectError: string | null;
   onDeleted: () => void;
 }) {
   const { getToken } = useAuth();
@@ -643,6 +885,7 @@ function ProjectCard({
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const connectionHealth = repositoryConnectionHealth(repoConn?.status);
 
   async function handleDelete() {
     if (deleteConfirmation !== project.name || deleting) return;
@@ -698,16 +941,16 @@ function ProjectCard({
           </div>
           {loading ? (
             <Loader2 size={14} className="animate-spin text-[var(--text-muted)]" />
-          ) : repoConn ? (
-            repoConn.status === 'connected' ? (
-              <span className="badge badge-success flex items-center gap-1 text-xs">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Connected
-              </span>
-            ) : (
-              <span className="badge badge-error text-xs capitalize">{repoConn.status}</span>
-            )
-          ) : (
+          ) : !repoConn ? (
             <span className="badge badge-neutral text-xs">No Repository</span>
+          ) : connectionHealth === 'revoked' ? (
+            <span className="badge badge-error text-xs">Reconnect required</span>
+          ) : connectionHealth === 'unhealthy' ? (
+            <span className="badge badge-error text-xs capitalize">{repoConn.status}</span>
+          ) : (
+            <span className="badge badge-success flex items-center gap-1 text-xs">
+              <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)]" /> Connected
+            </span>
           )}
         </div>
 
@@ -736,11 +979,22 @@ function ProjectCard({
               <span className="font-mono flex items-center gap-1"><GitBranch size={12} /> {repoConn.selected_branch}</span>
             </div>
             {latestJob && (
-              <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#ffffff0a] text-zinc-300">
-                <span className="font-semibold text-zinc-400 font-display">Ingestion:</span>
+              <div className="flex items-center justify-between mt-2 pt-2 border-t border-[var(--border-light)] text-[var(--text-secondary)]">
+                <span className="font-semibold text-[var(--text-secondary)] font-display">Ingestion:</span>
                 <span className={`badge ${ingestionBadge(latestJob.status).className} text-xs`}>
                   {ingestionBadge(latestJob.status).label}
                 </span>
+              </div>
+            )}
+
+            {connectionHealth === 'revoked' && (
+              <div role="alert" className="mt-2 pt-2 border-t border-[var(--border-light)] flex flex-col gap-2">
+                <span className="flex items-start gap-2 font-medium text-[var(--warning)]">
+                  <Unplug size={13} className="shrink-0 mt-0.5" />
+                  <span>Access to this repository was removed from the GitHub App.</span>
+                </span>
+                <ReconnectButton onClick={onReconnect} busy={reconnecting} />
+                {reconnectError && <span className="text-[var(--error)]">{reconnectError}</span>}
               </div>
             )}
           </div>

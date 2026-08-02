@@ -16,7 +16,9 @@ vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({ getToken: auth.getToken }),
 }));
 
-vi.mock("@/lib/api", () => ({
+// Only the network calls are stubbed; the pure status helpers stay real.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
   createWorkspace: api.createWorkspace,
   getWorkspaces: api.getWorkspaces,
   listConnectedRepositories: api.listConnectedRepositories,
@@ -66,6 +68,41 @@ describe("workspace dashboard", () => {
 
     expect(await screen.findByRole("heading", { name: "Incident response" })).toBeInTheDocument();
     expect(api.createWorkspace).toHaveBeenCalledWith("test-session-token", "Incident response");
+  });
+
+  it("flags a repository whose access was removed from the GitHub App", async () => {
+    const connection = {
+      id: "conn-1",
+      workspace_id: "workspace-1",
+      project_id: "project-1",
+      full_name: "pranav8764/ParkIntel",
+      html_url: "https://github.com/pranav8764/ParkIntel",
+      selected_branch: "main",
+      status: "connected",
+      last_indexed_commit_sha: "abcdef1234567",
+    };
+    api.listConnectedRepositories.mockResolvedValue({
+      connections: [
+        {
+          repository_connection: connection,
+          latest_ingestion_job: { status: "succeeded" },
+          project_name: "ParkIntel",
+          workspace_name: "Production",
+        },
+        {
+          repository_connection: { ...connection, id: "conn-2", full_name: "pranav8764/SentinelAPI", status: "revoked" },
+          latest_ingestion_job: { status: "succeeded" },
+          project_name: "SentinelAPI",
+          workspace_name: "Production",
+        },
+      ],
+    });
+    render(<WorkspacesPage />);
+
+    expect(await screen.findByText("Reconnect required")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reconnect pranav8764/SentinelAPI" })).toBeInTheDocument();
+    // The healthy connection keeps its ingestion badge.
+    expect(screen.getByText("Indexed")).toBeInTheDocument();
   });
 
   it("shows a recoverable error when workspace loading fails", async () => {

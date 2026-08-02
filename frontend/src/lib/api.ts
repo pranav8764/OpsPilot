@@ -1,5 +1,75 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+/**
+ * A non-2xx response from the gateway. It still extends Error, so every caller
+ * that only reads `.message` keeps working unchanged; callers that need to
+ * branch on the failure can read `status` and the machine-readable `code`.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(message: string, status: number, code = '') {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export function isApiError(error: unknown): error is ApiError {
+  return error instanceof ApiError;
+}
+
+/**
+ * The gateway reports this when the workspace's stored installation belongs to
+ * a GitHub App that can no longer mint tokens, so it must be reconnected.
+ */
+export const INSTALLATION_REVOKED_CODE = 'INSTALLATION_REVOKED';
+
+export const INSTALLATION_REVOKED_MESSAGE =
+  'This workspace is linked to a different GitHub App installation, so Archiatros can no longer read its repositories. Reconnect the GitHub App to restore access.';
+
+export function isInstallationRevokedError(error: unknown): boolean {
+  return isApiError(error) && error.code === INSTALLATION_REVOKED_CODE;
+}
+
+/**
+ * Turns any request failure into text a user can act on. Every non-2xx keeps
+ * its HTTP status and gateway error code, so a 500 can never be mistaken for
+ * "this installation has no repositories".
+ */
+export function describeRequestError(error: unknown, fallback = 'The request failed.'): string {
+  if (isInstallationRevokedError(error)) return INSTALLATION_REVOKED_MESSAGE;
+  if (isApiError(error)) {
+    const detail = error.code ? `HTTP ${error.status} ${error.code}` : `HTTP ${error.status}`;
+    return `${error.message} (${detail})`;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
+/**
+ * Resolves to a discriminated result instead of rejecting. An empty list and a
+ * failed call lead to opposite screens, so callers that fan out with
+ * Promise.all must be able to tell them apart.
+ */
+export async function settle<T>(promise: Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  try {
+    return { ok: true, value: await promise };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+interface ErrorEnvelope {
+  message?: string;
+  // The gateway's writeError() puts the machine-readable code under `error`;
+  // `code` is read first so a renamed envelope keeps working.
+  code?: string;
+  error?: string;
+}
+
 async function fetchAPI(endpoint: string, token: string, options: RequestInit = {}) {
   const headers: HeadersInit = {
     'Authorization': `Bearer ${token}`,
@@ -14,8 +84,16 @@ async function fetchAPI(endpoint: string, token: string, options: RequestInit = 
   });
 
   if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}));
-    throw new Error(errorBody.message || `API Error: ${res.status}`);
+    // A body of literal `null` parses to null, so `?? {}` is load-bearing:
+    // without it the property reads below would throw a TypeError and no
+    // caller would ever see an ApiError.
+    const errorBody: ErrorEnvelope = (await res.json().catch(() => null)) ?? {};
+    const rawCode = errorBody.code ?? errorBody.error;
+    throw new ApiError(
+      errorBody.message || `API Error: ${res.status}`,
+      res.status,
+      typeof rawCode === 'string' ? rawCode : ''
+    );
   }
 
   if (res.status === 204) return null;
@@ -140,6 +218,40 @@ export interface GitHubRepository {
   clone_url: string;
   default_branch: string;
   private: boolean;
+  // Absent today. Populated once the integration service annotates repositories
+  // whose access the installation no longer grants.
+  status?: string;
+}
+
+// github_installations.status, per infra/migrations/002_github_ingestion_foundation.sql.
+// 'error' is transient and stays selectable; these three are not.
+const UNUSABLE_INSTALLATION_STATUSES = new Set(['revoked', 'suspended', 'deleted']);
+
+/** A missing status means an older payload, which must keep working. */
+export function isInstallationUsable(status?: string | null): boolean {
+  return !UNUSABLE_INSTALLATION_STATUSES.has((status ?? '').trim().toLowerCase());
+}
+
+export type RepositoryConnectionHealth = 'connected' | 'revoked' | 'unhealthy';
+
+// repository_connections.status. 'revoked' is added by the installation-status
+// change; the rest come from migration 002.
+const UNHEALTHY_CONNECTION_STATUSES = new Set(['disabled', 'archived', 'error']);
+
+/**
+ * Missing or unrecognised statuses read as connected on purpose: `status` is
+ * being added server-side by a separate change, and this UI must not regress
+ * against payloads that predate it.
+ */
+export function repositoryConnectionHealth(status?: string | null): RepositoryConnectionHealth {
+  const normalized = (status ?? '').trim().toLowerCase();
+  if (normalized === 'revoked') return 'revoked';
+  if (UNHEALTHY_CONNECTION_STATUSES.has(normalized)) return 'unhealthy';
+  return 'connected';
+}
+
+export function isRevokedConnection(status?: string | null): boolean {
+  return repositoryConnectionHealth(status) === 'revoked';
 }
 
 export interface RepositoryConnection {
