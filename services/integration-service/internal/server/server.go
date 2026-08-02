@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	integrationv1 "github.com/opspilot/gen/proto/integration/v1"
 	"github.com/opspilot/integration-service/internal/config"
@@ -19,9 +22,41 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// errInstallationAppMismatch is returned whenever the stored installation cannot
+// belong to the App this service authenticates as. FailedPrecondition rather than
+// Internal on purpose: nothing is broken server side, and the only resolution is a
+// human reconnecting the App.
+const errInstallationAppMismatch = "installation belongs to a different GitHub App; reconnect required"
+
+// Revocation reasons are fixed server-side constants. Webhook payload prose never
+// reaches this value, so a delivery cannot write arbitrary text into audit_logs.
+const (
+	revokeReasonAppMismatch       = "app_id_mismatch"
+	revokeReasonTokenNotFound     = "installation_token_404"
+	revokeReasonWebhookDeleted    = "webhook.installation.deleted"
+	revokeReasonWebhookSuspended  = "webhook.installation.suspend"
+	revokeReasonWebhookReposRemvd = "webhook.installation_repositories.removed"
+)
+
+// githubReadTimeout caps how long a read blocks on GitHub. Reconciliation runs on
+// the request path, so an unreachable GitHub must degrade quickly to stored data
+// rather than hold the caller open for the full HTTP client timeout.
+const githubReadTimeout = 10 * time.Second
+
+// dbConn is the narrow slice of *pgxpool.Pool this service actually uses.
+// Depending on an interface rather than the concrete pool lets tests drive the
+// revocation and reconciliation branches, which are pure database effects and
+// would otherwise be reachable only against a live cluster.
+type dbConn interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type IntegrationServer struct {
 	integrationv1.UnimplementedIntegrationServiceServer
-	db        *pgxpool.Pool
+	db        dbConn
 	cfg       *config.Config
 	logger    *slog.Logger
 	publisher EventPublisher
@@ -33,6 +68,189 @@ type EventPublisher interface {
 
 func New(db *pgxpool.Pool, cfg *config.Config, logger *slog.Logger, publisher EventPublisher) *IntegrationServer {
 	return &IntegrationServer{db: db, cfg: cfg, logger: logger, publisher: publisher}
+}
+
+// githubAppIDMismatch reports whether a stored installation is bound to a
+// different GitHub App than the one this service is configured as.
+//
+// A NULL app_id is deliberately not a mismatch. Rows written before migration 008
+// predate the binding, so the App that minted them was never observed; treating
+// "unknown" as "wrong" would revoke every legacy installation on first read. Those
+// rows fall through to the token mint, which is authoritative, and a successful
+// reconnect backfills the binding.
+func githubAppIDMismatch(storedAppID *int64, configuredAppID string) bool {
+	if storedAppID == nil {
+		return false
+	}
+	configured, err := strconv.ParseInt(strings.TrimSpace(configuredAppID), 10, 64)
+	if err != nil || configured <= 0 {
+		// Unconfigured or unparseable app id: nothing trustworthy to compare
+		// against, so defer to GitHub rather than guessing.
+		return false
+	}
+	return *storedAppID != configured
+}
+
+// revokeInstallation marks one installation and every repository connection it
+// backs as revoked, inside a single statement so the two tables can never
+// disagree. Nothing is deleted: status is the only thing that moves, so indexed
+// chunks, ingestion history, and connection metadata all survive a reconnect.
+//
+// The audit row is written only when something actually changed, which keeps a
+// polling frontend from flooding audit_logs while an installation stays broken.
+func (s *IntegrationServer) revokeInstallation(ctx context.Context, workspaceID, installationRowID, reason string) error {
+	_, err := s.db.Exec(ctx, `
+		WITH revoked_installation AS (
+			UPDATE github_installations
+			SET status = 'revoked', updated_at = NOW()
+			WHERE id = $1 AND workspace_id = $2 AND status <> 'revoked'
+			RETURNING id
+		), revoked_connections AS (
+			UPDATE repository_connections
+			SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+			WHERE github_installation_id = $1 AND workspace_id = $2 AND status <> 'revoked'
+			RETURNING id
+		)
+		INSERT INTO audit_logs (workspace_id, action, resource_type, resource_id, metadata)
+		SELECT $2::uuid, 'github.installation.revoked', 'github_installation', $1::uuid,
+			jsonb_build_object('reason', $3::text,
+				'connections_revoked', (SELECT count(*) FROM revoked_connections))
+		WHERE EXISTS (SELECT 1 FROM revoked_installation)
+			OR EXISTS (SELECT 1 FROM revoked_connections)
+	`, installationRowID, workspaceID, reason)
+	return err
+}
+
+// revokeInstallationByGitHubID is the webhook-side revocation. The caller only
+// knows GitHub's numeric installation id, so the workspace is derived from the
+// stored row rather than taken from the payload: the payload selects, it never
+// scopes. Keyed on installation_id so it stays correct under migration 004, which
+// scoped uniqueness to (workspace_id, installation_id) and therefore lets one
+// installation legitimately serve several of its owner's workspaces.
+func (s *IntegrationServer) revokeInstallationByGitHubID(ctx context.Context, installationID int64, reason string) error {
+	_, err := s.db.Exec(ctx, `
+		WITH target AS (
+			SELECT id, workspace_id FROM github_installations WHERE installation_id = $1
+		), revoked_installation AS (
+			UPDATE github_installations
+			SET status = 'revoked', updated_at = NOW()
+			WHERE installation_id = $1 AND status <> 'revoked'
+			RETURNING id
+		), revoked_connections AS (
+			UPDATE repository_connections rc
+			SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+			FROM target t
+			WHERE rc.github_installation_id = t.id
+				AND rc.workspace_id = t.workspace_id
+				AND rc.status <> 'revoked'
+			RETURNING rc.id
+		)
+		INSERT INTO audit_logs (workspace_id, action, resource_type, resource_id, metadata)
+		SELECT t.workspace_id, 'github.installation.revoked', 'github_installation', t.id,
+			jsonb_build_object('reason', $2::text, 'installation_id', $1::bigint,
+				'connections_revoked', (SELECT count(*) FROM revoked_connections))
+		FROM target t
+		WHERE EXISTS (SELECT 1 FROM revoked_installation)
+			OR EXISTS (SELECT 1 FROM revoked_connections)
+	`, installationID, reason)
+	return err
+}
+
+// revokeConnectionsByRepositoryIDs revokes only the named repositories of one
+// installation. repositoryIDs comes from a webhook body, so it is used purely as a
+// selector against rows that already exist; it cannot introduce a repository, move
+// one between workspaces, or reach a connection the installation does not back.
+func (s *IntegrationServer) revokeConnectionsByRepositoryIDs(ctx context.Context, installationID int64, repositoryIDs []int64) error {
+	if len(repositoryIDs) == 0 {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `
+		WITH target AS (
+			SELECT id, workspace_id FROM github_installations WHERE installation_id = $1
+		), revoked_connections AS (
+			UPDATE repository_connections rc
+			SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+			FROM target t
+			WHERE rc.github_installation_id = t.id
+				AND rc.workspace_id = t.workspace_id
+				AND rc.repository_id = ANY($2::bigint[])
+				AND rc.status <> 'revoked'
+			RETURNING rc.id, rc.workspace_id
+		)
+		INSERT INTO audit_logs (workspace_id, action, resource_type, resource_id, metadata)
+		SELECT rc.workspace_id, 'github.repository.revoked', 'repository_connection', rc.id,
+			jsonb_build_object('reason', $3::text, 'installation_id', $1::bigint)
+		FROM revoked_connections rc
+	`, installationID, repositoryIDs, revokeReasonWebhookReposRemvd)
+	return err
+}
+
+// reconcileRepositoryConnections revokes stored connections that the installation
+// no longer grants access to. The App ships a disabled example.com webhook in local
+// development, so a read is the only reliable moment to notice that a repository
+// was removed from the installation and to stop showing it.
+//
+// Callers must only reach this with a live list they actually received. An errored
+// or timed-out GitHub call is not an empty list, and must never be passed here.
+func (s *IntegrationServer) reconcileRepositoryConnections(
+	ctx context.Context,
+	workspaceID string,
+	installationRowID string,
+	live []githubRepoMeta,
+) {
+	// Non-nil even when empty: an installation that genuinely grants nothing should
+	// revoke everything, and a nil slice would encode as SQL NULL and silently
+	// match no rows.
+	liveIDs := make([]int64, 0, len(live))
+	for _, repo := range live {
+		liveIDs = append(liveIDs, repo.ID)
+	}
+
+	tag, err := s.db.Exec(ctx, `
+		UPDATE repository_connections
+		SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+		WHERE workspace_id = $1
+			AND github_installation_id = $2
+			AND status <> 'revoked'
+			AND NOT (repository_id = ANY($3::bigint[]))
+	`, workspaceID, installationRowID, liveIDs)
+	if err != nil {
+		// Reconciliation is a side effect of a read. Never fail the read for it.
+		s.logger.Error("repository connection reconciliation failed", "error", err, "workspace_id", workspaceID)
+		return
+	}
+	if tag.RowsAffected() > 0 {
+		s.logger.Info("revoked repository connections no longer granted by installation",
+			"workspace_id", workspaceID, "count", tag.RowsAffected())
+	}
+}
+
+// storedRepositories returns the repositories this workspace already has connected
+// through an installation. It backs the fail-open path: when GitHub is unreachable
+// the user keeps seeing what they connected instead of an empty list.
+func (s *IntegrationServer) storedRepositories(ctx context.Context, workspaceID, installationRowID string) ([]*integrationv1.GitHubRepository, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT repository_id, owner, name, full_name, COALESCE(html_url, ''),
+			COALESCE(clone_url, ''), default_branch, COALESCE(is_private, false)
+		FROM repository_connections
+		WHERE workspace_id = $1 AND github_installation_id = $2 AND status <> 'revoked'
+		ORDER BY full_name
+	`, workspaceID, installationRowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var repositories []*integrationv1.GitHubRepository
+	for rows.Next() {
+		var repo integrationv1.GitHubRepository
+		if err := rows.Scan(&repo.RepositoryId, &repo.Owner, &repo.Name, &repo.FullName,
+			&repo.HtmlUrl, &repo.CloneUrl, &repo.DefaultBranch, &repo.Private); err != nil {
+			return nil, err
+		}
+		repositories = append(repositories, &repo)
+	}
+	return repositories, rows.Err()
 }
 
 func (s *IntegrationServer) GetGitHubConfig(ctx context.Context, req *integrationv1.GetGitHubConfigRequest) (*integrationv1.GetGitHubConfigResponse, error) {
@@ -105,6 +323,14 @@ func (s *IntegrationServer) persistGitHubInstallation(
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to encode GitHub permissions")
 	}
+	// Bind the row to the App that GitHub says owns this installation. Stored as
+	// NULL rather than 0 when GitHub omits it, so "unknown" stays distinguishable
+	// from a real app id and githubAppIDMismatch keeps failing open on it.
+	var appID *int64
+	if meta.AppID > 0 {
+		appID = &meta.AppID
+	}
+
 	var (
 		instID          string
 		accountLogin    string
@@ -115,19 +341,23 @@ func (s *IntegrationServer) persistGitHubInstallation(
 	)
 	err = tx.QueryRow(ctx, `
 		INSERT INTO github_installations (
-			workspace_id, integration_id, installation_id, account_id, account_login,
+			workspace_id, integration_id, installation_id, app_id, account_id, account_login,
 			account_type, repository_selection, permissions, status, installed_by, installed_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9, NOW())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, NOW())
 		ON CONFLICT (workspace_id, installation_id) DO UPDATE
 			SET status = 'active', integration_id = EXCLUDED.integration_id,
 				account_id = EXCLUDED.account_id, account_login = EXCLUDED.account_login,
 				account_type = EXCLUDED.account_type,
 				repository_selection = EXCLUDED.repository_selection,
-				permissions = EXCLUDED.permissions, updated_at = NOW()
+				permissions = EXCLUDED.permissions,
+				-- Reconnecting under a new App must rebind the row, but a response
+				-- that omitted app_id must not erase a binding we already observed.
+				app_id = COALESCE(EXCLUDED.app_id, github_installations.app_id),
+				updated_at = NOW()
 		RETURNING id, account_login, COALESCE(account_type, ''),
 			COALESCE(repository_selection, ''), status, installed_at
-	`, workspaceID, integrationID, installationID, meta.Account.ID, meta.Account.Login,
+	`, workspaceID, integrationID, installationID, appID, meta.Account.ID, meta.Account.Login,
 		meta.Account.Type, meta.RepositorySelection, permissions, userID).Scan(
 		&instID, &accountLogin, &accountType, &repoSelection, &statusStr, &installedAtTime,
 	)
@@ -206,10 +436,11 @@ func (s *IntegrationServer) ListRepositories(ctx context.Context, req *integrati
 	}
 
 	var installationID int64
+	var storedAppID *int64
 	err := s.db.QueryRow(ctx, `
-		SELECT installation_id FROM github_installations
+		SELECT installation_id, app_id FROM github_installations
 		WHERE id = $1 AND workspace_id = $2
-	`, req.GithubInstallationId, req.WorkspaceId).Scan(&installationID)
+	`, req.GithubInstallationId, req.WorkspaceId).Scan(&installationID, &storedAppID)
 	if err == pgx.ErrNoRows {
 		return nil, status.Error(codes.NotFound, "github installation not found in workspace")
 	}
@@ -218,17 +449,41 @@ func (s *IntegrationServer) ListRepositories(ctx context.Context, req *integrati
 		return nil, status.Error(codes.Internal, "database error fetching installation")
 	}
 
+	if err := s.enforceInstallationAppBinding(ctx, req.WorkspaceId, req.GithubInstallationId, installationID, storedAppID); err != nil {
+		return nil, err
+	}
+
 	token, err := s.getInstallationToken(installationID)
 	if err != nil {
+		if errors.Is(err, ErrInstallationNotFound) {
+			s.revokeUnusableInstallation(ctx, req.WorkspaceId, req.GithubInstallationId, installationID, revokeReasonTokenNotFound)
+			return nil, status.Error(codes.FailedPrecondition, errInstallationAppMismatch)
+		}
 		s.logger.Error("failed to generate installation token", "error", err, "installation_id", installationID)
 		return nil, status.Error(codes.Internal, "failed to authorize with github")
 	}
 
-	repos, err := s.fetchInstallationRepositories(token)
+	listCtx, cancel := context.WithTimeout(ctx, githubReadTimeout)
+	defer cancel()
+	repos, err := s.listInstallationRepositories(listCtx, token)
 	if err != nil {
-		s.logger.Error("failed to fetch installation repositories", "error", err)
-		return nil, status.Error(codes.Internal, "failed to retrieve repositories from github")
+		// Fail open. An outage is indistinguishable from "the user removed every
+		// repository" if it is allowed to reach reconciliation, so we neither revoke
+		// nor blank the list: serve what is already stored and let the next read
+		// reconcile. Only a read that actually saw GitHub may revoke anything.
+		s.logger.Warn("github repository listing failed; serving stored connections",
+			"error", err, "installation_id", installationID)
+		stored, storedErr := s.storedRepositories(ctx, req.WorkspaceId, req.GithubInstallationId)
+		if storedErr != nil {
+			s.logger.Error("failed to read stored repository connections", "error", storedErr)
+			return nil, status.Error(codes.Internal, "failed to retrieve repositories from github")
+		}
+		return &integrationv1.ListRepositoriesResponse{Repositories: stored}, nil
 	}
+
+	// GitHub answered, so this list is authoritative: anything stored but absent
+	// from it is no longer granted to the installation and must stop being shown.
+	s.reconcileRepositoryConnections(ctx, req.WorkspaceId, req.GithubInstallationId, repos)
 
 	var responseRepos []*integrationv1.GitHubRepository
 	for _, r := range repos {
@@ -245,6 +500,41 @@ func (s *IntegrationServer) ListRepositories(ctx context.Context, req *integrati
 	}
 
 	return &integrationv1.ListRepositoriesResponse{Repositories: responseRepos}, nil
+}
+
+// enforceInstallationAppBinding fails a request before it ever reaches GitHub when
+// the stored installation is bound to a different App, and revokes the stale rows
+// on the way out so the frontend stops offering a connection that cannot work.
+func (s *IntegrationServer) enforceInstallationAppBinding(
+	ctx context.Context,
+	workspaceID string,
+	installationRowID string,
+	installationID int64,
+	storedAppID *int64,
+) error {
+	if !githubAppIDMismatch(storedAppID, s.cfg.GitHubAppID) {
+		return nil
+	}
+	s.logger.Error("installation is bound to a different github app",
+		"installation_id", installationID, "stored_app_id", *storedAppID)
+	s.revokeUnusableInstallation(ctx, workspaceID, installationRowID, installationID, revokeReasonAppMismatch)
+	return status.Error(codes.FailedPrecondition, errInstallationAppMismatch)
+}
+
+// revokeUnusableInstallation records the revocation and never propagates its own
+// failure: the caller is already returning an actionable error, and a database
+// hiccup here must not downgrade that into an opaque Internal.
+func (s *IntegrationServer) revokeUnusableInstallation(
+	ctx context.Context,
+	workspaceID string,
+	installationRowID string,
+	installationID int64,
+	reason string,
+) {
+	if err := s.revokeInstallation(ctx, workspaceID, installationRowID, reason); err != nil {
+		s.logger.Error("failed to revoke unusable github installation",
+			"error", err, "installation_id", installationID, "reason", reason)
+	}
 }
 
 func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrationv1.AttachRepositoryRequest) (*integrationv1.AttachRepositoryResponse, error) {
@@ -272,11 +562,12 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 	// deliberately ignored because they are untrusted input.
 	var integrationID string
 	var installationID int64
+	var storedAppID *int64
 	err = s.db.QueryRow(ctx, `
-		SELECT COALESCE(integration_id::text, ''), installation_id
+		SELECT COALESCE(integration_id::text, ''), installation_id, app_id
 		FROM github_installations
 		WHERE id = $1 AND workspace_id = $2 AND status = 'active'
-	`, req.GithubInstallationId, req.WorkspaceId).Scan(&integrationID, &installationID)
+	`, req.GithubInstallationId, req.WorkspaceId).Scan(&integrationID, &installationID, &storedAppID)
 	if err == pgx.ErrNoRows {
 		return nil, status.Error(codes.NotFound, "active github installation not found in workspace")
 	}
@@ -284,12 +575,22 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 		return nil, status.Error(codes.Internal, "failed to resolve installation details")
 	}
 
+	if err := s.enforceInstallationAppBinding(ctx, req.WorkspaceId, req.GithubInstallationId, installationID, storedAppID); err != nil {
+		return nil, err
+	}
+
 	token, err := s.getInstallationToken(installationID)
 	if err != nil {
+		if errors.Is(err, ErrInstallationNotFound) {
+			s.revokeUnusableInstallation(ctx, req.WorkspaceId, req.GithubInstallationId, installationID, revokeReasonTokenNotFound)
+			return nil, status.Error(codes.FailedPrecondition, errInstallationAppMismatch)
+		}
 		s.logger.Error("failed to authorize repository attachment", "error", err, "installation_id", installationID)
 		return nil, status.Error(codes.Unavailable, "failed to authorize with github")
 	}
-	repositories, err := s.fetchInstallationRepositories(token)
+	listCtx, cancelList := context.WithTimeout(ctx, githubReadTimeout)
+	repositories, err := s.listInstallationRepositories(listCtx, token)
+	cancelList()
 	if err != nil {
 		s.logger.Error("failed to validate repository attachment", "error", err)
 		return nil, status.Error(codes.Unavailable, "failed to validate repository with github")
@@ -347,6 +648,9 @@ func (s *IntegrationServer) AttachRepository(ctx context.Context, req *integrati
 				selected_branch = EXCLUDED.selected_branch,
 				is_private = EXCLUDED.is_private,
 				status = 'connected',
+				-- Reattaching clears a previous revocation outright, so a reconnect
+				-- restores the row rather than leaving a stale revoked_at behind.
+				revoked_at = NULL,
 				updated_at = NOW()
 		RETURNING id, full_name, COALESCE(html_url, ''), selected_branch, status
 	`, req.WorkspaceId, req.ProjectId, integrationID, req.GithubInstallationId, repository.ID, repository.Owner.Login, repository.Name, repository.FullName, repository.HTMLURL, repository.CloneURL, repository.DefaultBranch, selectedBranch, repository.Private, userUUID).Scan(
@@ -539,6 +843,11 @@ func (s *IntegrationServer) ListRepositoryConnections(ctx context.Context, req *
 		-- NULLIF keeps the empty (unscoped) case from ever reaching a uuid cast,
 		-- so this does not depend on OR short-circuit evaluation order.
 		WHERE (NULLIF($2, '')::uuid IS NULL OR rc.workspace_id = NULLIF($2, '')::uuid)
+			-- A revoked connection is one the installation no longer grants. It stays
+			-- in the table so a reconnect can restore it without re-indexing, but it
+			-- must not be listed: this is what makes a repository removed from the
+			-- GitHub App disappear from the dashboard.
+			AND rc.status <> 'revoked'
 		ORDER BY w.created_at DESC, p.name ASC
 	`, req.UserId, req.WorkspaceId)
 	if err != nil {
@@ -605,10 +914,9 @@ func (s *IntegrationServer) HandleGitHubWebhook(ctx context.Context, req *integr
 	}
 
 	s.logger.Info("webhook verified successfully, processing event", "event_type", req.EventType)
-	// Webhook signature verified. Under MVP rules:
-	// - Treat webhook data as untrusted input.
-	// - Do not trigger risky actions from webhooks.
-	// - Log successfully.
+	// A verified signature proves GitHub sent the delivery. It says nothing about
+	// the body, which stays untrusted: see applyGitHubWebhookRevocations for the
+	// limits placed on what the payload is allowed to influence.
 
 	// Create audit log event
 	metadata, _ := json.Marshal(map[string]string{"event_type": req.EventType})
@@ -620,7 +928,92 @@ func (s *IntegrationServer) HandleGitHubWebhook(ctx context.Context, req *integr
 		return nil, status.Error(codes.Internal, "failed to audit webhook")
 	}
 
+	if err := s.applyGitHubWebhookRevocations(ctx, req.EventType, req.Payload); err != nil {
+		// Returning an error lets GitHub redeliver. Revocation is idempotent, so a
+		// redelivery is always safe.
+		s.logger.Error("github webhook revocation failed", "error", err, "event_type", req.EventType)
+		return nil, status.Error(codes.Internal, "failed to apply webhook revocation")
+	}
+
 	return &integrationv1.HandleGitHubWebhookResponse{Success: true}, nil
+}
+
+// githubWebhookEnvelope is the deliberately minimal view this service takes of a
+// webhook body: an installation id, an action, and the ids of removed
+// repositories. Nothing else is decoded, so no other field can influence anything.
+type githubWebhookEnvelope struct {
+	Action       string `json:"action"`
+	Installation struct {
+		ID int64 `json:"id"`
+	} `json:"installation"`
+	RepositoriesRemoved []struct {
+		ID int64 `json:"id"`
+	} `json:"repositories_removed"`
+}
+
+// applyGitHubWebhookRevocations narrows a verified delivery down to the only two
+// events that may change local state, and only ever in the revoking direction.
+//
+// The payload is untrusted data, not instructions. It is used solely to select
+// rows that already exist, by numeric id. It cannot create a row, grant access,
+// widen a scope, move a resource between workspaces, or select a code path beyond
+// the fixed cases below; every workspace scope is read from the stored
+// installation, never from the body. Names, prose, and every other field are
+// ignored outright.
+func (s *IntegrationServer) applyGitHubWebhookRevocations(ctx context.Context, eventType string, payload []byte) error {
+	if eventType != "installation" && eventType != "installation_repositories" {
+		return nil
+	}
+
+	var envelope githubWebhookEnvelope
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		// An undecodable body is not a server fault; there is simply nothing to act
+		// on. The delivery has already been audited.
+		s.logger.Warn("github webhook payload could not be decoded", "event_type", eventType)
+		return nil
+	}
+	if envelope.Installation.ID <= 0 {
+		return nil
+	}
+
+	switch eventType {
+	case "installation":
+		// "deleted" and "suspend" both mean the installation grants nothing right
+		// now. Any other action ("created", "unsuspend", "new_permissions_accepted")
+		// deliberately falls through: no webhook may restore access, only a
+		// reconnect through the authenticated install flow can.
+		var reason string
+		switch envelope.Action {
+		case "deleted":
+			reason = revokeReasonWebhookDeleted
+		case "suspend":
+			reason = revokeReasonWebhookSuspended
+		default:
+			return nil
+		}
+		s.logger.Info("revoking installation from webhook",
+			"installation_id", envelope.Installation.ID, "reason", reason)
+		return s.revokeInstallationByGitHubID(ctx, envelope.Installation.ID, reason)
+
+	case "installation_repositories":
+		if envelope.Action != "removed" {
+			return nil
+		}
+		repositoryIDs := make([]int64, 0, len(envelope.RepositoriesRemoved))
+		for _, repo := range envelope.RepositoriesRemoved {
+			if repo.ID > 0 {
+				repositoryIDs = append(repositoryIDs, repo.ID)
+			}
+		}
+		if len(repositoryIDs) == 0 {
+			return nil
+		}
+		s.logger.Info("revoking repository connections from webhook",
+			"installation_id", envelope.Installation.ID, "count", len(repositoryIDs))
+		return s.revokeConnectionsByRepositoryIDs(ctx, envelope.Installation.ID, repositoryIDs)
+	}
+
+	return nil
 }
 
 func verifySignature(payload []byte, signatureHeader string, secret string) bool {
