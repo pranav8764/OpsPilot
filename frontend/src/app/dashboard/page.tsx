@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
-import { Plus, Building2, ArrowRight, Loader2, GitBranch, ExternalLink, FolderGit2 } from 'lucide-react';
+import { Plus, Building2, ArrowRight, Loader2, GitBranch, ExternalLink, FolderGit2, Unplug } from 'lucide-react';
 import {
   getWorkspaces,
   createWorkspace,
   listConnectedRepositories,
+  isRevokedConnection,
+  describeRequestError,
   Workspace,
   RepositoryConnectionSummary,
 } from '@/lib/api';
@@ -162,7 +164,7 @@ function ConnectedRepositories() {
       setConnections(res.connections || []);
     } catch (requestError) {
       console.error('Error fetching connected repositories:', requestError);
-      setError(requestError instanceof Error ? requestError.message : 'Repositories could not be loaded.');
+      setError(describeRequestError(requestError, 'Repositories could not be loaded.'));
     } finally {
       setLoading(false);
     }
@@ -179,12 +181,12 @@ function ConnectedRepositories() {
     <section className="glass-card p-6 mb-8 animate-fade-in">
       <div className="flex-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-indigo-500/20 flex-center">
-            <FolderGit2 size={18} className="text-indigo-400" />
+          <div className="w-9 h-9 rounded-lg bg-[var(--accent-primary)]/20 flex-center">
+            <FolderGit2 size={18} className="text-[var(--accent-primary)]" />
           </div>
           <div>
-            <h2 className="text-lg font-medium text-white">Connected Repositories</h2>
-            <p className="text-xs text-zinc-500">Every repository linked across your workspaces.</p>
+            <h2 className="text-lg font-medium text-[var(--text-primary)]">Connected Repositories</h2>
+            <p className="text-xs text-[var(--text-muted)]">Every repository linked across your workspaces.</p>
           </div>
         </div>
         {!loading && (
@@ -193,30 +195,33 @@ function ConnectedRepositories() {
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-zinc-500 py-4">
+        <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] py-4">
           <Loader2 size={14} className="animate-spin" /> Loading repositories…
         </div>
       ) : error ? (
-        <div role="alert" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
+        <div role="alert" className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-[var(--error)]/25 bg-[var(--error)]/10 p-4 text-sm text-[var(--error)]">
           <span>{error}</span>
           <button type="button" onClick={fetchConnections} className="btn btn-secondary self-start sm:self-auto">
             Retry
           </button>
         </div>
       ) : connections.length === 0 ? (
-        <p className="text-sm text-zinc-500 py-2">
+        <p className="text-sm text-[var(--text-muted)] py-2">
           No repositories connected yet. Open a workspace and use{' '}
-          <span className="text-zinc-300">Connect Repository</span> to link one.
+          <span className="text-[var(--text-secondary)]">Connect Repository</span> to link one.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {connections.map((summary) => {
             const conn = summary.repository_connection;
             const badge = ingestionBadge(summary.latest_ingestion_job?.status);
+            // Access removed from the GitHub App: say so instead of showing a
+            // stale "Indexed" badge for a repository we can no longer read.
+            const revoked = isRevokedConnection(conn.status);
             return (
               <li
                 key={conn.id}
-                className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-[var(--border-light)] hover:bg-[#ffffff05] transition-colors"
+                className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-[var(--border-light)] hover:bg-[var(--bg-tertiary)] transition-colors"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 min-w-0">
@@ -224,36 +229,42 @@ function ConnectedRepositories() {
                       href={conn.html_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-sm text-indigo-400 hover:underline truncate flex items-center gap-1"
+                      className="text-sm text-[var(--accent-primary)] hover:text-[var(--accent-primary-hover)] hover:underline truncate flex items-center gap-1"
                     >
                       {conn.full_name} <ExternalLink size={12} className="shrink-0" />
                     </a>
                   </div>
-                  <div className="text-[10px] text-zinc-500 truncate">
+                  <div className="text-[10px] text-[var(--text-muted)] truncate">
                     {summary.workspace_name} / {summary.project_name}
                   </div>
                 </div>
 
-                <span className="flex items-center gap-1 text-[10px] text-zinc-400 font-mono">
+                <span className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)] font-mono">
                   <GitBranch size={11} /> {conn.selected_branch}
                 </span>
 
                 {conn.last_indexed_commit_sha ? (
-                  <span className="hidden sm:inline text-[10px] text-zinc-500 font-mono">
+                  <span className="hidden sm:inline text-[10px] text-[var(--text-muted)] font-mono">
                     {conn.last_indexed_commit_sha.substring(0, 7)}
                   </span>
                 ) : (
-                  <span className="hidden sm:inline text-[10px] text-zinc-600">Never indexed</span>
+                  <span className="hidden sm:inline text-[10px] text-[var(--text-muted)]">Never indexed</span>
                 )}
 
-                <span className={`badge ${badge.className} text-[10px]`}>{badge.label}</span>
+                {revoked ? (
+                  <span className="badge badge-error text-[10px] flex items-center gap-1">
+                    <Unplug size={10} /> Reconnect required
+                  </span>
+                ) : (
+                  <span className={`badge ${badge.className} text-[10px]`}>{badge.label}</span>
+                )}
 
                 <Link
                   href={`/dashboard/${conn.workspace_id}`}
-                  className="text-zinc-600 hover:text-white transition-colors"
-                  aria-label={`Open ${summary.workspace_name}`}
+                  className="btn btn-secondary text-[10px] py-1 px-2"
+                  aria-label={revoked ? `Reconnect ${conn.full_name}` : `Open ${summary.workspace_name}`}
                 >
-                  <ArrowRight size={16} />
+                  {revoked ? 'Reconnect' : <ArrowRight size={14} />}
                 </Link>
               </li>
             );
