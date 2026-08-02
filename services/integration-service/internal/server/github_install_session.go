@@ -35,6 +35,19 @@ func (s *IntegrationServer) CreateGitHubInstallSession(ctx context.Context, req 
 		return nil, err
 	}
 
+	// Sweep abandoned sessions opportunistically. Most installs are never
+	// completed, so unconsumed rows would otherwise accumulate forever behind the
+	// partial index from migration 005. Doing it here keeps the table bounded by
+	// install attempts without a background goroutine, and a failed sweep is only
+	// housekeeping: it must never block the user from starting an install.
+	// Consumed rows are left alone; they are the record of a real installation.
+	if _, err := s.db.Exec(ctx, `
+		DELETE FROM github_install_sessions
+		WHERE consumed_at IS NULL AND expires_at < NOW()
+	`); err != nil {
+		s.logger.Warn("expired GitHub install session sweep failed", "error", err)
+	}
+
 	random := make([]byte, 32)
 	if _, err := rand.Read(random); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create installation state")

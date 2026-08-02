@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,8 +16,20 @@ import (
 var githubHTTPClient = &http.Client{Timeout: 30 * time.Second}
 var githubAPIBaseURL = "https://api.github.com"
 
+// ErrInstallationNotFound reports that GitHub does not recognise an installation
+// id as belonging to the App this service authenticates as. An installation id is
+// only meaningful to the App that created it, so rotating GITHUB_APP_ID turns
+// every previously stored installation into a 404 at the token endpoint. Callers
+// must branch on this with errors.Is instead of treating it as a transient
+// outage: retrying can never succeed, only reconnecting under the current App can.
+var ErrInstallationNotFound = errors.New("github installation is not accessible to the configured github app")
+
 type githubInstallationMeta struct {
-	ID      int64 `json:"id"`
+	ID int64 `json:"id"`
+	// AppID binds the installation to the GitHub App that created it. Persisting
+	// it is what lets the service detect an App rotation locally, before it spends
+	// a round trip discovering the binding is stale.
+	AppID   int64 `json:"app_id"`
 	Account struct {
 		Login string `json:"login"`
 		ID    int64  `json:"id"`
@@ -113,6 +127,12 @@ func (s *IntegrationServer) getInstallationToken(installationID int64) (string, 
 	}
 	defer resp.Body.Close()
 
+	// 404 is the App-binding signal, not a generic failure: GitHub hides
+	// installations that belong to a different App behind "not found". Surface it
+	// as a sentinel so callers can revoke locally instead of retrying forever.
+	if resp.StatusCode == http.StatusNotFound {
+		return "", ErrInstallationNotFound
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("unexpected status code fetching token: %d", resp.StatusCode)
 	}
@@ -160,11 +180,15 @@ func (s *IntegrationServer) fetchInstallationMetadata(installationID int64) (*gi
 	return &res, nil
 }
 
-func (s *IntegrationServer) fetchInstallationRepositories(token string) ([]githubRepoMeta, error) {
+// listInstallationRepositories returns every repository the installation grants
+// access to, following GitHub's pagination. Bound to a caller-supplied context so
+// a request path can cap how long it waits on GitHub rather than inheriting only
+// the client-wide timeout.
+func (s *IntegrationServer) listInstallationRepositories(ctx context.Context, token string) ([]githubRepoMeta, error) {
 	var repositories []githubRepoMeta
 	for page := 1; page <= 100; page++ {
 		url := fmt.Sprintf("%s/installation/repositories?per_page=100&page=%d", githubAPIBaseURL, page)
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 		if err != nil {
 			return nil, err
 		}
