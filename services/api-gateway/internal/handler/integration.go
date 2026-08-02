@@ -12,7 +12,55 @@ import (
 	"github.com/opspilot/api-gateway/internal/middleware"
 	authv1 "github.com/opspilot/gen/proto/auth/v1"
 	integrationv1 "github.com/opspilot/gen/proto/integration/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+// grpcErrorResponse is the client-visible shape a gRPC status code maps onto.
+type grpcErrorResponse struct {
+	httpStatus int
+	errorCode  string
+	message    string
+}
+
+// grpcErrorResponses maps the gRPC status codes the Integration Service uses
+// deliberately onto a real HTTP status and a stable, machine-readable error
+// code the browser can branch on. Every entry carries a fixed message of our
+// own: upstream error text may embed installation tokens, webhook signatures,
+// or raw GitHub response bodies, so it is never forwarded to the client.
+var grpcErrorResponses = map[codes.Code]grpcErrorResponse{
+	codes.FailedPrecondition: {http.StatusConflict, "INSTALLATION_REVOKED", "this GitHub connection is no longer usable; reconnect the GitHub App"},
+	codes.NotFound:           {http.StatusNotFound, "NOT_FOUND", "the requested resource was not found"},
+	codes.PermissionDenied:   {http.StatusForbidden, "FORBIDDEN", "you do not have access to this resource"},
+	codes.Unauthenticated:    {http.StatusUnauthorized, "UNAUTHORIZED", "authentication is required"},
+	codes.InvalidArgument:    {http.StatusBadRequest, "INVALID_REQUEST", "the request was rejected as invalid"},
+	codes.Unavailable:        {http.StatusServiceUnavailable, "UPSTREAM_UNAVAILABLE", "the service is temporarily unavailable; please retry"},
+}
+
+// resolveGRPCError picks the HTTP status, error code, and message for a gRPC
+// error. Codes outside the mapping — including plain errors carrying no status
+// — fall through to the caller's own defaults so existing behaviour is
+// unchanged for everything the Integration Service does not classify.
+func resolveGRPCError(err error, defaultStatus int, defaultCode, defaultMessage string) (int, string, string) {
+	if err == nil {
+		return defaultStatus, defaultCode, defaultMessage
+	}
+	grpcStatus, ok := status.FromError(err)
+	if !ok || grpcStatus == nil {
+		return defaultStatus, defaultCode, defaultMessage
+	}
+	if mapped, found := grpcErrorResponses[grpcStatus.Code()]; found {
+		return mapped.httpStatus, mapped.errorCode, mapped.message
+	}
+	return defaultStatus, defaultCode, defaultMessage
+}
+
+// writeGRPCError renders a gRPC error through resolveGRPCError using the shared
+// error envelope. The upstream error string is never included in the response.
+func writeGRPCError(w http.ResponseWriter, err error, defaultStatus int, defaultCode, defaultMessage string) {
+	httpStatus, errorCode, message := resolveGRPCError(err, defaultStatus, defaultCode, defaultMessage)
+	writeError(w, httpStatus, errorCode, message)
+}
 
 type IntegrationHandler struct {
 	authClient        authv1.AuthServiceClient
@@ -58,7 +106,7 @@ func (h *IntegrationHandler) CreateGitHubInstallSession(w http.ResponseWriter, r
 	})
 	if err != nil {
 		h.logger.Error("create GitHub install session failed", "error", err)
-		writeError(w, http.StatusBadGateway, "GITHUB_INSTALL_SESSION_FAILED", "failed to prepare GitHub installation")
+		writeGRPCError(w, err, http.StatusBadGateway, "GITHUB_INSTALL_SESSION_FAILED", "failed to prepare GitHub installation")
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"install_url": resp.InstallUrl, "expires_at": resp.ExpiresAt})
@@ -164,7 +212,7 @@ func (h *IntegrationHandler) ListConnectedRepositories(w http.ResponseWriter, r 
 	})
 	if err != nil {
 		h.logger.Error("list repository connections failed", "error", err, "workspace_id", workspaceID)
-		writeError(w, http.StatusBadGateway, "REPOSITORY_LIST_FAILED", "failed to list connected repositories")
+		writeGRPCError(w, err, http.StatusBadGateway, "REPOSITORY_LIST_FAILED", "failed to list connected repositories")
 		return
 	}
 	connections := resp.Connections
@@ -202,7 +250,7 @@ func (h *IntegrationHandler) GitHubConfig(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		h.logger.Error("get github config failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "GITHUB_CONFIG_FAILED", "failed to fetch GitHub configuration")
+		writeGRPCError(w, err, http.StatusInternalServerError, "GITHUB_CONFIG_FAILED", "failed to fetch GitHub configuration")
 		return
 	}
 
@@ -243,7 +291,7 @@ func (h *IntegrationHandler) GitHubCallback(w http.ResponseWriter, r *http.Reque
 	})
 	if err != nil {
 		h.logger.Error("handle callback failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "CALLBACK_FAILED", "failed to process GitHub installation")
+		writeGRPCError(w, err, http.StatusInternalServerError, "CALLBACK_FAILED", "failed to process GitHub installation")
 		return
 	}
 
@@ -277,7 +325,7 @@ func (h *IntegrationHandler) ListInstallations(w http.ResponseWriter, r *http.Re
 	})
 	if err != nil {
 		h.logger.Error("list installations failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "LIST_FAILED", "failed to list installations")
+		writeGRPCError(w, err, http.StatusInternalServerError, "LIST_FAILED", "failed to list installations")
 		return
 	}
 
@@ -330,7 +378,7 @@ func (h *IntegrationHandler) ListRepositories(w http.ResponseWriter, r *http.Req
 	})
 	if err != nil {
 		h.logger.Error("list repositories failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "LIST_REPOS_FAILED", "failed to list repositories")
+		writeGRPCError(w, err, http.StatusInternalServerError, "LIST_REPOS_FAILED", "failed to list repositories")
 		return
 	}
 
@@ -411,7 +459,7 @@ func (h *IntegrationHandler) AttachRepository(w http.ResponseWriter, r *http.Req
 	})
 	if err != nil {
 		h.logger.Error("attach repository failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "ATTACH_FAILED", "failed to attach repository to project")
+		writeGRPCError(w, err, http.StatusInternalServerError, "ATTACH_FAILED", "failed to attach repository to project")
 		return
 	}
 
@@ -461,7 +509,7 @@ func (h *IntegrationHandler) GetRepository(w http.ResponseWriter, r *http.Reques
 	})
 	if err != nil {
 		h.logger.Error("get repository connection failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "FETCH_FAILED", "failed to fetch repository connection details")
+		writeGRPCError(w, err, http.StatusInternalServerError, "FETCH_FAILED", "failed to fetch repository connection details")
 		return
 	}
 
