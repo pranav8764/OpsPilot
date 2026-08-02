@@ -65,6 +65,10 @@ func (c failingIntegrationClient) GetRepositoryConnection(_ context.Context, _ *
 	return nil, c.err
 }
 
+func (c failingIntegrationClient) ListRepositoryConnections(_ context.Context, _ *integrationv1.ListRepositoryConnectionsRequest, _ ...grpc.CallOption) (*integrationv1.ListRepositoryConnectionsResponse, error) {
+	return nil, c.err
+}
+
 func newIntegrationHandler(err error) *IntegrationHandler {
 	return NewIntegrationHandler(
 		stubAuthClient{},
@@ -85,6 +89,14 @@ func authedRequest(method, path, body string) *http.Request {
 }
 
 const repositoriesPath = "/api/v1/workspaces/ws-1/integrations/github/installations/42/repositories"
+
+// ListConnectedRepositories serves two routes: workspace-scoped and, when the
+// path carries no workspace segment, across every workspace the caller belongs
+// to. Both must map identically.
+const (
+	connectedRepositoriesPath          = "/api/v1/repositories"
+	workspaceConnectedRepositoriesPath = "/api/v1/workspaces/ws-1/repositories"
+)
 
 // TestListRepositoriesMapsGRPCCodesToHTTPStatuses is the core of this unit: an
 // installation belonging to a different GitHub App must reach the browser as a
@@ -123,6 +135,55 @@ func TestListRepositoriesMapsGRPCCodesToHTTPStatuses(t *testing.T) {
 				t.Fatalf("upstream error text leaked to client: %s", body)
 			}
 		})
+	}
+}
+
+// TestListConnectedRepositoriesMapsGRPCCodesToHTTPStatuses covers the endpoint
+// the dashboard calls to list connected repositories — the exact path in the
+// original bug report. A repository connected through a stale GitHub App must
+// surface as 409 INSTALLATION_REVOKED rather than an opaque 502, on both the
+// workspace-scoped and cross-workspace routes.
+func TestListConnectedRepositoriesMapsGRPCCodesToHTTPStatuses(t *testing.T) {
+	for _, route := range []struct {
+		name string
+		path string
+	}{
+		{"cross workspace route", connectedRepositoriesPath},
+		{"workspace scoped route", workspaceConnectedRepositoriesPath},
+	} {
+		for _, test := range []struct {
+			name       string
+			grpcCode   codes.Code
+			wantStatus int
+			wantCode   string
+		}{
+			{"failed precondition becomes conflict", codes.FailedPrecondition, http.StatusConflict, "INSTALLATION_REVOKED"},
+			{"not found", codes.NotFound, http.StatusNotFound, "NOT_FOUND"},
+			{"permission denied", codes.PermissionDenied, http.StatusForbidden, "FORBIDDEN"},
+			{"unauthenticated", codes.Unauthenticated, http.StatusUnauthorized, "UNAUTHORIZED"},
+			{"invalid argument", codes.InvalidArgument, http.StatusBadRequest, "INVALID_REQUEST"},
+			{"unavailable", codes.Unavailable, http.StatusServiceUnavailable, "UPSTREAM_UNAVAILABLE"},
+			{"internal falls through to handler default", codes.Internal, http.StatusBadGateway, "REPOSITORY_LIST_FAILED"},
+			{"unknown falls through to handler default", codes.Unknown, http.StatusBadGateway, "REPOSITORY_LIST_FAILED"},
+			{"deadline exceeded falls through to handler default", codes.DeadlineExceeded, http.StatusBadGateway, "REPOSITORY_LIST_FAILED"},
+		} {
+			t.Run(route.name+"/"+test.name, func(t *testing.T) {
+				handler := newIntegrationHandler(status.Error(test.grpcCode, "reconnect required: ghs_secret_token"))
+				recorder := httptest.NewRecorder()
+				handler.ListConnectedRepositories(recorder, authedRequest(http.MethodGet, route.path, ""))
+
+				if recorder.Code != test.wantStatus {
+					t.Fatalf("status = %d, want %d (body %s)", recorder.Code, test.wantStatus, recorder.Body.String())
+				}
+				body := recorder.Body.String()
+				if !strings.Contains(body, `"error":"`+test.wantCode+`"`) {
+					t.Fatalf("error code missing from body: %s", body)
+				}
+				if strings.Contains(body, "ghs_secret_token") || strings.Contains(body, "rpc error") {
+					t.Fatalf("upstream error text leaked to client: %s", body)
+				}
+			})
+		}
 	}
 }
 
@@ -192,6 +253,22 @@ func TestIntegrationHandlersPreserveTheirOwnDefaults(t *testing.T) {
 			wantStatus: http.StatusInternalServerError,
 			wantCode:   "FETCH_FAILED",
 		},
+		{
+			name: "list connected repositories",
+			invoke: func(h *IntegrationHandler, w http.ResponseWriter) {
+				h.ListConnectedRepositories(w, authedRequest(http.MethodGet, connectedRepositoriesPath, ""))
+			},
+			wantStatus: http.StatusBadGateway,
+			wantCode:   "REPOSITORY_LIST_FAILED",
+		},
+		{
+			name: "list connected repositories for one workspace",
+			invoke: func(h *IntegrationHandler, w http.ResponseWriter) {
+				h.ListConnectedRepositories(w, authedRequest(http.MethodGet, workspaceConnectedRepositoriesPath, ""))
+			},
+			wantStatus: http.StatusBadGateway,
+			wantCode:   "REPOSITORY_LIST_FAILED",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			handler := newIntegrationHandler(status.Error(codes.Internal, "database is down: dsn=postgres://user:pw@db"))
@@ -239,6 +316,12 @@ func TestIntegrationHandlersMapFailedPreconditionToConflict(t *testing.T) {
 		}},
 		{"get repository", func(h *IntegrationHandler, w http.ResponseWriter) {
 			h.GetRepository(w, authedRequest(http.MethodGet, "/api/v1/workspaces/ws-1/projects/proj-1/repository", ""))
+		}},
+		{"list connected repositories", func(h *IntegrationHandler, w http.ResponseWriter) {
+			h.ListConnectedRepositories(w, authedRequest(http.MethodGet, connectedRepositoriesPath, ""))
+		}},
+		{"list connected repositories for one workspace", func(h *IntegrationHandler, w http.ResponseWriter) {
+			h.ListConnectedRepositories(w, authedRequest(http.MethodGet, workspaceConnectedRepositoriesPath, ""))
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

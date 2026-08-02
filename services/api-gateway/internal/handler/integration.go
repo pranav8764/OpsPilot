@@ -212,7 +212,7 @@ func (h *IntegrationHandler) ListConnectedRepositories(w http.ResponseWriter, r 
 	})
 	if err != nil {
 		h.logger.Error("list repository connections failed", "error", err, "workspace_id", workspaceID)
-		writeError(w, http.StatusBadGateway, "REPOSITORY_LIST_FAILED", "failed to list connected repositories")
+		writeGRPCError(w, err, http.StatusBadGateway, "REPOSITORY_LIST_FAILED", "failed to list connected repositories")
 		return
 	}
 	connections := resp.Connections
