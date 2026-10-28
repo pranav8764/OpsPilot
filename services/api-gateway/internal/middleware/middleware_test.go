@@ -79,7 +79,6 @@ func TestHTTPMetricsExposeLowCardinalityCounters(t *testing.T) {
 	}
 }
 
-
 func TestRateLimitKeysAnonymousClientsByIPNotPort(t *testing.T) {
 	handler := RateLimit(2, time.Minute, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
