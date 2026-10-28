@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -153,7 +154,7 @@ func RateLimit(maxRequests int, window time.Duration, logger *slog.Logger) func(
 	lastCleanup := time.Now()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			key := r.RemoteAddr
+			key := clientIP(r.RemoteAddr)
 			if token := extractBearerToken(r); token != "" {
 				digest := sha256.Sum256([]byte(token))
 				key = "token:" + hex.EncodeToString(digest[:16])
@@ -191,6 +192,15 @@ func RateLimit(maxRequests int, window time.Duration, logger *slog.Logger) func(
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// clientIP strips the ephemeral source port from RemoteAddr so every
+// connection from one client shares a rate-limit bucket.
+func clientIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 func SecurityHeaders(production bool) func(http.Handler) http.Handler {
