@@ -78,3 +78,23 @@ func TestHTTPMetricsExposeLowCardinalityCounters(t *testing.T) {
 		t.Fatal("metrics must not contain tenant identifiers")
 	}
 }
+
+func TestRateLimitKeysAnonymousClientsByIPNotPort(t *testing.T) {
+	handler := RateLimit(2, time.Minute, slog.Default())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	// Same client IP, a new source port per connection.
+	for index, addr := range []string{"203.0.113.7:50001", "203.0.113.7:50002", "203.0.113.7:50003"} {
+		request := httptest.NewRequest(http.MethodGet, "/public", nil)
+		request.RemoteAddr = addr
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		expected := http.StatusNoContent
+		if index == 2 {
+			expected = http.StatusTooManyRequests
+		}
+		if recorder.Code != expected {
+			t.Fatalf("request %d from %s returned %d, expected %d", index, addr, recorder.Code, expected)
+		}
+	}
+}
